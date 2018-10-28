@@ -51,7 +51,7 @@ func pingClient(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		params := url.Values{}
-		params.Set("port", r.Form["port"][0])
+		params.Set("ip", remoteIP)
 		params.Set("token", token)
 		urlPath.RawQuery = params.Encode()
 		log.Println("request :", urlPath.String())

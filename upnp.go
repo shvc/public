@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"log"
 	"net"
@@ -14,6 +13,12 @@ import (
 
 	upnp "github.com/NebulousLabs/go-upnp"
 )
+
+// Version to record build bersion
+var Version = "1.0.3"
+
+// ServerURL default Server URL
+var ServerURL = "http://www.aweg.cc:23456/ping"
 
 func newListener() net.Listener {
 	l, err := net.Listen("tcp", "0.0.0.0:0")
@@ -30,26 +35,25 @@ func clearPort(d *upnp.IGD, port uint16) {
 	// un-forward a port
 	err := d.Clear(port)
 	if err != nil {
-		log.Printf("unmap upnp port[%d] error: %s ", port, err.Error())
+		log.Printf("Failed unmap port : %d , %s ", port, err.Error())
 		fmt.Scanln()
 	} else {
-		fmt.Printf("unmap port[%d] success\n", port)
+		fmt.Printf("Success unmap port: %d\n", port)
 	}
 }
 
 func main() {
 	checkResult := false
-	serverURL := flag.String("port", "http://192.168.56.1:23456/ping", "Server URL")
-	flag.Parse()
 
 	// connect to router
 	d, err := upnp.Discover()
 	if err != nil {
 		log.Fatal("Not find upnp router, ", err)
 	}
+	fmt.Printf("Time and Version  : %s %s\n", time.Now().Format("2006-01-02 15:04:05"), Version)
 	// record router's location
 	loc := d.Location()
-	log.Println("Router locaion: ", loc)
+	fmt.Printf("Router locaion    : %s\n", loc)
 
 	token := fmt.Sprintf("%d", time.Now().UnixNano())
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -58,12 +62,12 @@ func main() {
 		if r.Method == "GET" {
 			r.ParseForm()
 			if token != r.Form.Get("token") {
-				log.Printf("Failed, expected 'token=%s', got: '%s'", token, r.Form.Get("token"))
+				log.Printf("Unexpected token  : %s\n", r.Form.Get("token"))
 			}
-			fmt.Printf("Your public IP: %v\n", r.Form.Get("ip"))
+			fmt.Printf("Real public IP    : %v\n", r.Form.Get("ip"))
 			checkResult = true
 		} else {
-			log.Printf("Failed, expected 'GET' request, got '%s'", r.Method)
+			log.Printf("Unexpected request:%s\n", r.Method)
 		}
 	}))
 	srv.Listener = newListener()
@@ -81,16 +85,16 @@ func main() {
 	// upnp forward a port
 	err = d.Forward(uint16(iport), "myshare-check")
 	if err != nil {
-		log.Printf("upnp map port[%d] failed %s ", iport, err.Error())
+		log.Printf("Failed map port   : %d , %s ", iport, err.Error())
 		fmt.Scanln()
 		return
 	}
-	fmt.Printf("upnp map port[%d] success\n", iport)
-	defer clearPort(d, uint16(iport))
+	fmt.Printf("Success map port  : %d\n", iport)
 
-	urlPath, err := url.Parse(*serverURL)
+	urlPath, err := url.Parse(ServerURL)
 	if err != nil {
-		log.Println("Parse URL error: ", err)
+		log.Println("Parse URL error  : ", err)
+		clearPort(d, uint16(iport))
 		fmt.Scanln()
 		return
 	}
@@ -101,28 +105,30 @@ func main() {
 
 	resp, err := http.Get(urlPath.String())
 	if err != nil {
-		log.Println("request URL error: ", err)
+		log.Println("Request URL error : ", err)
+		clearPort(d, uint16(iport))
 		fmt.Scanln()
 		return
 	}
 	if resp.StatusCode != http.StatusOK {
-		log.Println("server response failed ", resp.Status)
+		log.Println("Server response failed ", resp.Status)
+		clearPort(d, uint16(iport))
 		fmt.Scanln()
 		return
 	}
 
 	time.Sleep(2000)
-
+	clearPort(d, uint16(iport))
 	// discover external IP
 	ip, err := d.ExternalIP()
 	if err != nil {
-		log.Println("upnp externalIP error: ", err)
+		log.Println("upnp public IP err: ", err)
 		fmt.Scanln()
 		return
 	}
-	fmt.Println("upnp public IP:", ip)
+	fmt.Printf("upnp public IP    : %s\n", ip)
 	if checkResult {
-		fmt.Println("Success!!")
+		fmt.Println("Success!")
 	} else {
 		fmt.Println("Failed!")
 	}

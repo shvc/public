@@ -7,13 +7,14 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 )
 
 func echoClientAddress(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
-	log.Printf("ping : %s %s %s\n", r.RemoteAddr, r.Method, r.RequestURI)
+	log.Printf("ip : %s %s %s\n", r.RemoteAddr, r.Method, r.RequestURI)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	remoteIP := r.RemoteAddr
@@ -72,27 +73,28 @@ func main() {
 	fport := flag.Uint("port", 23456, "Listen port")
 	flag.Parse()
 	addrPort := fmt.Sprintf(":%d", *fport)
+	logfile := "/tmp/upnpchecker.log"
+	fd, err := os.OpenFile(logfile, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		fmt.Printf("open logfile %s, error: %s", logfile, err)
+		os.Exit(1)
+	}
+	logPrefix := fmt.Sprintf("%d ", os.Getpid())
+	log.SetPrefix(logPrefix)
+	log.SetOutput(fd)
 
 	http.HandleFunc("/ip", echoClientAddress)
 	http.HandleFunc("/ping", pingClient)
 
 	//http.Handle("/pkgs/", http.StripPrefix("/pkgs/", http.FileServer(http.Dir(*filedir))))
 
-	http.HandleFunc("/upnp", func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("upnp"))
-	})
-
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("<a href=\"/ip\">Get public ip</a>\n"))
+		w.Write([]byte("<a href=\"/ip\">Get your public ip</a>\n"))
 		w.Write([]byte("<br>\n"))
-		w.Write([]byte("<a href=\"/upnp\">Test upnp</a>\n"))
 	})
 
-	fmt.Printf("server: %s\n", addrPort)
-	err := http.ListenAndServe(addrPort, nil)
+	log.Printf("listen: %s\n", addrPort)
+	err = http.ListenAndServe(addrPort, nil)
 	if err != nil {
 		log.Println("listen error: ", err)
 	}

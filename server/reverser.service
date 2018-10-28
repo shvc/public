@@ -1,0 +1,13 @@
+[Unit]
+Description=Triage Server
+After=network.target
+
+[Service]
+Restart=always
+RestartSec=240
+Type=simple
+ExecStart=/usr/local/bin/reverser
+KillMode=control-group
+
+[Install]
+WantedBy=multi-user.target

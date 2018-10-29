@@ -66,7 +66,7 @@ func main() {
 		Listener: newListener(),
 		Config: &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("test server"))
+			w.Write([]byte("Success"))
 			if r.Method == "GET" {
 				r.ParseForm()
 				if token != r.Form.Get("token") {

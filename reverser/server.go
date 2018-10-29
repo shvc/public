@@ -15,7 +15,7 @@ import (
 
 func echoClientAddress(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
-	log.Printf("ip : %s %s %s\n", r.RemoteAddr, r.Method, r.RequestURI)
+	log.Printf("/ip %s %s %s\n", r.RemoteAddr, r.Method, r.RequestURI)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	remoteIP := r.RemoteAddr
@@ -28,7 +28,7 @@ func echoClientAddress(w http.ResponseWriter, r *http.Request) {
 
 func pingClient(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
-	log.Printf("ping : %s %s %s\n", r.RemoteAddr, r.Method, r.RequestURI)
+	log.Printf("/ping %s %s %s\n", r.RemoteAddr, r.Method, r.RequestURI)
 	if r.Method == "GET" {
 		r.ParseForm()
 		if r.Form.Get("port") == "" {
@@ -62,10 +62,10 @@ func pingClient(w http.ResponseWriter, r *http.Request) {
 		params := url.Values{}
 		params.Set("ip", remoteIP)
 		urlPath.RawQuery = params.Encode()
-		log.Println("request :", urlPath.String())
+		log.Println("request(Get) ->", urlPath.String())
 		resp, err := http.Get(urlPath.String())
 		if err != nil {
-			log.Println(err)
+			log.Println("Get client(server) error: ", err)
 			w.WriteHeader(http.StatusBadGateway)
 			w.Write([]byte(err.Error()))
 			return
@@ -101,10 +101,12 @@ func main() {
 	http.HandleFunc("/ip", echoClientAddress)
 	http.HandleFunc("/ping", pingClient)
 
-	//http.Handle("/pkgs/", http.StripPrefix("/pkgs/", http.FileServer(http.Dir(*filedir))))
+	//http.Handle("/pkgs/", http.StripPrefix("/pkgs/", http.FileServer(http.Dir(filepath.Join("tmp"), "pkgs")))))
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("<a href=\"/ip\">Get your public ip</a>\n"))
+		w.Write([]byte("<br>\n"))
+		w.Write([]byte("<a href=\"/pkgs\">Get test app</a>\n"))
 		w.Write([]byte("<br>\n"))
 	})
 

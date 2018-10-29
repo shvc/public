@@ -19,9 +19,8 @@ import (
 var Version = "1.0.3"
 
 // ServerURL default Server URL
-var ServerURL = "http://192.168.56.1:23456/ping"
-
-//var ServerURL = "http://www.aweg.cc:23456/ping"
+//var ServerURL = "http://192.168.56.1:23456/ping"
+var ServerURL = "http://www.aweg.cc:23456/ping"
 
 func newListener() net.Listener {
 	l, err := net.Listen("tcp", "0.0.0.0:0")
@@ -59,8 +58,8 @@ func main() {
 	// record router's location
 	loc := d.Location()
 	fmt.Printf("Router locaion    : %s\n", loc)
-
 	token := fmt.Sprintf("%d", time.Now().UnixNano())
+	fmt.Printf("Client token      : %s\n", token)
 	srv := &httptest.Server{
 		Listener: newListener(),
 		Config: &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -108,13 +107,13 @@ func main() {
 
 	resp, err := http.Get(urlPath.String())
 	if err != nil {
-		log.Println("Request URL error : ", err)
+		fmt.Println("Request URL error : ", err)
 		clearPort(d, uint16(iport))
 		fmt.Scanln()
 		return
 	}
 	if resp.StatusCode != http.StatusOK {
-		log.Println("Server response failed ", resp.Status)
+		fmt.Println("Server response   : ", resp.Status)
 		clearPort(d, uint16(iport))
 		fmt.Scanln()
 		return
@@ -127,6 +126,7 @@ func main() {
 		return
 	}
 	fmt.Printf("Server response   : %s\n", tokenBody)
+
 	// discover external IP
 	ip, err := d.ExternalIP()
 	if err != nil {

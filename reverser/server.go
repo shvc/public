@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -30,8 +31,8 @@ func pingClient(w http.ResponseWriter, r *http.Request) {
 	log.Printf("ping : %s %s %s\n", r.RemoteAddr, r.Method, r.RequestURI)
 	if r.Method == "GET" {
 		r.ParseForm()
-		if r.Form.Get("port") == "" || r.Form.Get("token") == "" {
-			http.Error(w, "No parameter port and token", http.StatusBadRequest)
+		if r.Form.Get("port") == "" {
+			http.Error(w, "No parameter port", http.StatusBadRequest)
 			return
 		}
 		port, err := strconv.Atoi(r.Form.Get("port"))
@@ -39,14 +40,17 @@ func pingClient(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Invalid parameters", http.StatusBadRequest)
 			return
 		}
-		token := r.Form.Get("token")
 
-		remoteIP := r.RemoteAddr
+		remoteIP := ""
 		if r.Form.Get("ip") != "" {
 			remoteIP = r.Form.Get("ip")
 		} else {
 			if index := strings.Index(r.RemoteAddr, ":"); index > 0 {
 				remoteIP = r.RemoteAddr[:index]
+			} else {
+				log.Println("No valid remoteIP to use")
+				http.Error(w, "Address error", http.StatusInternalServerError)
+				return
 			}
 		}
 
@@ -57,18 +61,24 @@ func pingClient(w http.ResponseWriter, r *http.Request) {
 		}
 		params := url.Values{}
 		params.Set("ip", remoteIP)
-		params.Set("token", token)
 		urlPath.RawQuery = params.Encode()
 		log.Println("request :", urlPath.String())
 		resp, err := http.Get(urlPath.String())
 		if err != nil {
 			log.Println(err)
+			w.WriteHeader(http.StatusBadGateway)
+			w.Write([]byte(err.Error()))
 			return
 		}
 		if resp.StatusCode != http.StatusOK {
 			log.Println("ping client server failed: ", resp.Status)
+			w.WriteHeader(resp.StatusCode)
+			w.Write([]byte(resp.Status))
+		} else {
+			defer resp.Body.Close()
+			w.WriteHeader(http.StatusOK)
+			io.Copy(w, resp.Body)
 		}
-		w.WriteHeader(resp.StatusCode)
 	} else {
 		http.Error(w, "Bad request", http.StatusBadRequest)
 	}

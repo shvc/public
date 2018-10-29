@@ -49,12 +49,14 @@ func main() {
 	waitSec := flag.Duration("wait", 5, "wait seconds")
 	flag.Parse()
 
+	fmt.Printf("Time and Version  : %s @ %s\n", time.Now().Format("2006-01-02 15:04:05"), Version)
 	// connect to router
 	d, err := upnp.Discover()
 	if err != nil {
-		log.Fatal("Not find upnp router, ", err)
+		log.Println("Not find upnp router, ", err)
+		fmt.Scanln()
+		return
 	}
-	fmt.Printf("Time and Version  : %s @ %s\n", time.Now().Format("2006-01-02 15:04:05"), Version)
 	// record router's location
 	loc := d.Location()
 	fmt.Printf("Router locaion    : %s\n", loc)

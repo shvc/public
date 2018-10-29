@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"io/ioutil"
-	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -37,7 +36,7 @@ func clearPort(d *upnp.IGD, port uint16) {
 	// un-forward a port
 	err := d.Clear(port)
 	if err != nil {
-		log.Printf("Failed unmap port : %d , %s ", port, err.Error())
+		fmt.Printf("Failed unmap port : %d , %s ", port, err.Error())
 		fmt.Scanln()
 	} else {
 		fmt.Printf("Success unmap port: %d\n", port)
@@ -51,25 +50,24 @@ func main() {
 	// connect to router
 	d, err := upnp.Discover()
 	if err != nil {
-		log.Println("Not find upnp router, ", err)
+		fmt.Println("Not find upnp router, ", err)
 		fmt.Scanln()
 		return
 	}
 	// record router's location
 	loc := d.Location()
 	fmt.Printf("Router locaion    : %s\n", loc)
-	token := fmt.Sprintf("%d", time.Now().UnixNano())
-	fmt.Printf("Client token      : %s\n", token)
+
 	srv := &httptest.Server{
 		Listener: newListener(),
 		Config: &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Method == "GET" {
 				r.ParseForm()
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(token))
+				w.Write([]byte("Success!!"))
 				fmt.Printf("Real public IP    : %v\n", r.Form.Get("ip"))
 			} else {
-				log.Printf("Unexpected request: %s from %s\n", r.Method, r.RemoteAddr)
+				fmt.Printf("Unexpected request: %s from %s\n", r.Method, r.RemoteAddr)
 			}
 		})},
 	}
@@ -77,7 +75,7 @@ func main() {
 
 	portIndex := strings.LastIndex(srv.URL, ":")
 	if portIndex < 0 || portIndex >= len(srv.URL) {
-		log.Printf("Can not get port from %s", srv.URL)
+		fmt.Printf("Can not get port from %s", srv.URL)
 		fmt.Scanln()
 		return
 	}
@@ -87,7 +85,7 @@ func main() {
 	// upnp forward a port
 	err = d.Forward(uint16(iport), "myshare-check")
 	if err != nil {
-		log.Printf("Failed map port   : %d , %s ", iport, err.Error())
+		fmt.Printf("Failed map port   : %d , %s ", iport, err.Error())
 		fmt.Scanln()
 		return
 	}
@@ -95,7 +93,7 @@ func main() {
 
 	urlPath, err := url.Parse(ServerURL)
 	if err != nil {
-		log.Println("Parse URL error  : ", err)
+		fmt.Println("Parse URL error  : ", err)
 		clearPort(d, uint16(iport))
 		fmt.Scanln()
 		return
@@ -113,14 +111,14 @@ func main() {
 		return
 	}
 	if resp.StatusCode != http.StatusOK {
-		fmt.Println("Server response   : ", resp.Status)
+		fmt.Println("Server response   :", resp.Status)
 		clearPort(d, uint16(iport))
 		fmt.Scanln()
 		return
 	}
 	tokenBody, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		log.Println("ReadAll response Body error: ", err)
+		fmt.Println("ReadAll response Body error: ", err)
 		clearPort(d, uint16(iport))
 		fmt.Scanln()
 		return
@@ -130,7 +128,7 @@ func main() {
 	// discover external IP
 	ip, err := d.ExternalIP()
 	if err != nil {
-		log.Println("upnp public IP err: ", err)
+		fmt.Println("upnp public IP err: ", err)
 		clearPort(d, uint16(iport))
 		fmt.Scanln()
 		return

@@ -53,6 +53,7 @@ func pingClient(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+		w.WriteHeader(http.StatusOK)
 
 		urlPath, err := url.Parse(fmt.Sprintf("http://%s:%d", remoteIP, port))
 		if err != nil {
@@ -66,17 +67,14 @@ func pingClient(w http.ResponseWriter, r *http.Request) {
 		resp, err := http.Get(urlPath.String())
 		if err != nil {
 			log.Println("Get client(server) error: ", err)
-			w.WriteHeader(http.StatusBadGateway)
 			w.Write([]byte(err.Error()))
 			return
 		}
 		if resp.StatusCode != http.StatusOK {
 			log.Println("ping client server failed: ", resp.Status)
-			w.WriteHeader(resp.StatusCode)
 			w.Write([]byte(resp.Status))
 		} else {
 			defer resp.Body.Close()
-			w.WriteHeader(http.StatusOK)
 			io.Copy(w, resp.Body)
 		}
 	} else {

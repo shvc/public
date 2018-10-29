@@ -42,8 +42,12 @@ func pingClient(w http.ResponseWriter, r *http.Request) {
 		token := r.Form.Get("token")
 
 		remoteIP := r.RemoteAddr
-		if index := strings.Index(r.RemoteAddr, ":"); index > 0 {
-			remoteIP = r.RemoteAddr[:index]
+		if r.Form.Get("ip") != "" {
+			remoteIP = r.Form.Get("ip")
+		} else {
+			if index := strings.Index(r.RemoteAddr, ":"); index > 0 {
+				remoteIP = r.RemoteAddr[:index]
+			}
 		}
 
 		urlPath, err := url.Parse(fmt.Sprintf("http://%s:%d", remoteIP, port))
@@ -62,8 +66,9 @@ func pingClient(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if resp.StatusCode != http.StatusOK {
-			log.Println("ping server failed: ", resp.Status)
+			log.Println("ping client server failed: ", resp.Status)
 		}
+		w.WriteHeader(resp.StatusCode)
 	} else {
 		http.Error(w, "Bad request", http.StatusBadRequest)
 	}

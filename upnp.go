@@ -32,14 +32,19 @@ func newListener() net.Listener {
 	return l
 }
 
+func confirmExit() {
+	fmt.Printf("Press Enter to exit")
+	fmt.Scanln()
+}
+
 func clearPort(d *upnp.IGD, port uint16) {
 	// un-forward a port
 	err := d.Clear(port)
 	if err != nil {
-		fmt.Printf("Failed unmap port : %d , %s ", port, err.Error())
-		fmt.Scanln()
+		fmt.Printf("Failed unmap port : %d , %s \n\n", port, err.Error())
+		confirmExit()
 	} else {
-		fmt.Printf("Success unmap port: %d\n", port)
+		fmt.Printf("Success unmap port: %d\n\n", port)
 	}
 }
 
@@ -50,8 +55,8 @@ func main() {
 	// connect to router
 	d, err := upnp.Discover()
 	if err != nil {
-		fmt.Println("Not find upnp router, ", err)
-		fmt.Scanln()
+		fmt.Printf("Not find upnp Router: %s\n\n", err.Error())
+		confirmExit()
 		return
 	}
 	// record router's location
@@ -77,8 +82,8 @@ func main() {
 
 	portIndex := strings.LastIndex(srv.URL, ":")
 	if portIndex < 0 || portIndex >= len(srv.URL) {
-		fmt.Printf("Can not get port from %s", srv.URL)
-		fmt.Scanln()
+		fmt.Printf("Can not get port from %s \n\n", srv.URL)
+		confirmExit()
 		return
 	}
 	lport := srv.URL[portIndex+1:]
@@ -87,8 +92,8 @@ func main() {
 	// upnp forward a port
 	err = d.Forward(uint16(iport), "myshare-check")
 	if err != nil {
-		fmt.Printf("Failed map port   : %d , %s ", iport, err.Error())
-		fmt.Scanln()
+		fmt.Printf("Failed map port   : %d , %s \n\n", iport, err.Error())
+		confirmExit()
 		return
 	}
 	fmt.Printf("Success map port  : %d\n", iport)
@@ -103,9 +108,9 @@ func main() {
 
 	urlPath, err := url.Parse(ServerURL)
 	if err != nil {
-		fmt.Println("Parse URL error  : ", err)
+		fmt.Printf("Parse URL error  : %s\n\n", err.Error())
 		clearPort(d, uint16(iport))
-		fmt.Scanln()
+		confirmExit()
 		return
 	}
 	params := url.Values{}
@@ -117,13 +122,13 @@ func main() {
 	if err != nil {
 		fmt.Println("Request URL error : ", err)
 		clearPort(d, uint16(iport))
-		fmt.Scanln()
+		confirmExit()
 		return
 	}
 	if resp.StatusCode != http.StatusOK {
 		fmt.Println("Server response   :", resp.Status)
 		clearPort(d, uint16(iport))
-		fmt.Scanln()
+		confirmExit()
 		return
 	}
 	respData := map[string]interface{}{}
@@ -135,6 +140,6 @@ func main() {
 	fmt.Printf("Test result       : %s\n", respData["result"])
 
 	clearPort(d, uint16(iport))
-	fmt.Scanln()
+	confirmExit()
 
 }

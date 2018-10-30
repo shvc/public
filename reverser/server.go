@@ -86,7 +86,7 @@ func pingClient(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		go process(&w, remoteIP, port)
+		process(&w, remoteIP, port)
 	} else {
 		http.Error(w, "Bad request", http.StatusBadRequest)
 	}

@@ -53,16 +53,13 @@ func pingClient(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		respData := map[string]interface{}{"ip": remoteIP}
 
-		urlPath, err := url.Parse(fmt.Sprintf("http://%s:%d", remoteIP, port))
+		urlPath, err := url.Parse(fmt.Sprintf("http://%s:%d/upnp", remoteIP, port))
 		if err != nil {
 			respData["result"] = "Server internal error"
 			respBody, _ := json.Marshal(respData)
 			w.Write(respBody)
 			return
 		}
-		params := url.Values{}
-		params.Set("ip", remoteIP)
-		urlPath.RawQuery = params.Encode()
 		log.Println("request(Get) ->", urlPath.String())
 		resp, err := http.Get(urlPath.String())
 		if err != nil {

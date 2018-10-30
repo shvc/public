@@ -62,9 +62,12 @@ func main() {
 		Listener: newListener(),
 		Config: &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Method == "GET" {
-				r.ParseForm()
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte("Success!!"))
+				if r.URL.EscapedPath() != "/upnp" {
+					w.Write([]byte("Invalid URL!"))
+				} else {
+					w.Write([]byte("Success!!"))
+				}
 			} else {
 				fmt.Printf("Unexpected request: %s from %s\n", r.Method, r.RemoteAddr)
 			}

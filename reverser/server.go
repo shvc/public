@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
@@ -31,13 +31,9 @@ func pingClient(w http.ResponseWriter, r *http.Request) {
 	log.Printf("/ping %s %s %s\n", r.RemoteAddr, r.Method, r.RequestURI)
 	if r.Method == "GET" {
 		r.ParseForm()
-		if r.Form.Get("port") == "" {
-			http.Error(w, "No parameter port", http.StatusBadRequest)
-			return
-		}
 		port, err := strconv.Atoi(r.Form.Get("port"))
 		if err != nil {
-			http.Error(w, "Invalid parameters", http.StatusBadRequest)
+			http.Error(w, "Invalid parameter port", http.StatusBadRequest)
 			return
 		}
 
@@ -49,15 +45,19 @@ func pingClient(w http.ResponseWriter, r *http.Request) {
 				remoteIP = r.RemoteAddr[:index]
 			} else {
 				log.Println("No valid remoteIP to use")
-				http.Error(w, "Address error", http.StatusInternalServerError)
+				http.Error(w, "server Address error", http.StatusInternalServerError)
 				return
 			}
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
+		respData := map[string]interface{}{"ip": remoteIP}
 
 		urlPath, err := url.Parse(fmt.Sprintf("http://%s:%d", remoteIP, port))
 		if err != nil {
-			http.Error(w, "internal error", http.StatusInternalServerError)
+			respData["result"] = "Server internal error"
+			respBody, _ := json.Marshal(respData)
+			w.Write(respBody)
 			return
 		}
 		params := url.Values{}
@@ -66,16 +66,24 @@ func pingClient(w http.ResponseWriter, r *http.Request) {
 		log.Println("request(Get) ->", urlPath.String())
 		resp, err := http.Get(urlPath.String())
 		if err != nil {
-			log.Println("Get client(server) error: ", err)
-			w.Write([]byte(err.Error()))
+			log.Printf("ping client(server) error : %s", err.Error())
+			respData["result"] = err.Error()
+			respBody, _ := json.Marshal(respData)
+			w.Write(respBody)
 			return
 		}
 		if resp.StatusCode != http.StatusOK {
-			log.Println("ping client server failed: ", resp.Status)
-			w.Write([]byte(resp.Status))
+			log.Printf("ping client(server) failed: %s", resp.Status)
+			respData["result"] = resp.Status
+			respBody, _ := json.Marshal(respData)
+			w.Write(respBody)
 		} else {
 			defer resp.Body.Close()
-			io.Copy(w, resp.Body)
+			clientBody, _ := ioutil.ReadAll(resp.Body)
+			log.Printf("ping client(server) success: %s", clientBody)
+			respData["result"] = string(clientBody)
+			respBody, _ := json.Marshal(respData)
+			w.Write(respBody)
 		}
 	} else {
 		http.Error(w, "Bad request", http.StatusBadRequest)

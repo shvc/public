@@ -1,8 +1,8 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -65,7 +65,6 @@ func main() {
 				r.ParseForm()
 				w.WriteHeader(http.StatusOK)
 				w.Write([]byte("Success!!"))
-				fmt.Printf("Real public IP    : %v\n", r.Form.Get("ip"))
 			} else {
 				fmt.Printf("Unexpected request: %s from %s\n", r.Method, r.RemoteAddr)
 			}
@@ -90,6 +89,14 @@ func main() {
 		return
 	}
 	fmt.Printf("Success map port  : %d\n", iport)
+
+	// discover external IP
+	ip, err := d.ExternalIP()
+	if err != nil {
+		fmt.Println("upnp public IP err:", err)
+	} else {
+		fmt.Println("upnp public IP    :", ip)
+	}
 
 	urlPath, err := url.Parse(ServerURL)
 	if err != nil {
@@ -116,24 +123,14 @@ func main() {
 		fmt.Scanln()
 		return
 	}
-	tokenBody, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		fmt.Println("ReadAll response Body error: ", err)
-		clearPort(d, uint16(iport))
-		fmt.Scanln()
+	respData := map[string]interface{}{}
+	if err := json.NewDecoder(resp.Body).Decode(&respData); err != nil {
+		fmt.Println("Server response   :", err)
 		return
 	}
-	fmt.Printf("Server response   : %s\n", tokenBody)
+	fmt.Printf("Real public IP    : %s\n", respData["ip"])
+	fmt.Printf("Test result       : %s\n", respData["result"])
 
-	// discover external IP
-	ip, err := d.ExternalIP()
-	if err != nil {
-		fmt.Println("upnp public IP err: ", err)
-		clearPort(d, uint16(iport))
-		fmt.Scanln()
-		return
-	}
-	fmt.Printf("upnp public IP    : %s\n", ip)
 	clearPort(d, uint16(iport))
 	fmt.Scanln()
 

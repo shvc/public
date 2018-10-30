@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func echoClientAddress(w http.ResponseWriter, r *http.Request) {
@@ -24,6 +26,49 @@ func echoClientAddress(w http.ResponseWriter, r *http.Request) {
 	}
 	data, _ := json.Marshal(map[string]interface{}{"ip": remoteIP})
 	w.Write(data)
+}
+
+func process(w http.ResponseWriter, remoteIP string, port int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	respData := map[string]interface{}{"ip": remoteIP}
+
+	urlPath, err := url.Parse(fmt.Sprintf("http://%s:%d/upnp", remoteIP, port))
+	if err != nil {
+		respData["result"] = "Server internal error"
+		respBody, _ := json.Marshal(respData)
+		w.Write(respBody)
+		return
+	}
+	log.Println("request(Get) ->", urlPath.String())
+
+	client := &http.Client{
+		Timeout: time.Second * 10,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+	resp, err := client.Get(urlPath.String())
+	if err != nil {
+		log.Printf("ping client(server) error : %s", err.Error())
+		respData["result"] = err.Error()
+		respBody, _ := json.Marshal(respData)
+		w.Write(respBody)
+		return
+	}
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("ping client(server) failed: %s", resp.Status)
+		respData["result"] = resp.Status
+		respBody, _ := json.Marshal(respData)
+		w.Write(respBody)
+	} else {
+		defer resp.Body.Close()
+		clientBody, _ := ioutil.ReadAll(resp.Body)
+		log.Printf("ping client(server) success: %s", clientBody)
+		respData["result"] = string(clientBody)
+		respBody, _ := json.Marshal(respData)
+		w.Write(respBody)
+	}
 }
 
 func pingClient(w http.ResponseWriter, r *http.Request) {
@@ -49,39 +94,7 @@ func pingClient(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		respData := map[string]interface{}{"ip": remoteIP}
-
-		urlPath, err := url.Parse(fmt.Sprintf("http://%s:%d/upnp", remoteIP, port))
-		if err != nil {
-			respData["result"] = "Server internal error"
-			respBody, _ := json.Marshal(respData)
-			w.Write(respBody)
-			return
-		}
-		log.Println("request(Get) ->", urlPath.String())
-		resp, err := http.Get(urlPath.String())
-		if err != nil {
-			log.Printf("ping client(server) error : %s", err.Error())
-			respData["result"] = err.Error()
-			respBody, _ := json.Marshal(respData)
-			w.Write(respBody)
-			return
-		}
-		if resp.StatusCode != http.StatusOK {
-			log.Printf("ping client(server) failed: %s", resp.Status)
-			respData["result"] = resp.Status
-			respBody, _ := json.Marshal(respData)
-			w.Write(respBody)
-		} else {
-			defer resp.Body.Close()
-			clientBody, _ := ioutil.ReadAll(resp.Body)
-			log.Printf("ping client(server) success: %s", clientBody)
-			respData["result"] = string(clientBody)
-			respBody, _ := json.Marshal(respData)
-			w.Write(respBody)
-		}
+		go process(w, remoteIP, port)
 	} else {
 		http.Error(w, "Bad request", http.StatusBadRequest)
 	}

@@ -64,9 +64,9 @@ func main() {
 			if r.Method == "GET" {
 				w.WriteHeader(http.StatusOK)
 				if r.URL.EscapedPath() != "/upnp" {
-					w.Write([]byte("Invalid URL!"))
+					w.Write([]byte("Invalid URL !"))
 				} else {
-					w.Write([]byte("Success!!"))
+					w.Write([]byte("Success !"))
 				}
 			} else {
 				fmt.Printf("Unexpected request: %s from %s\n", r.Method, r.RemoteAddr)

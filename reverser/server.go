@@ -1,16 +1,19 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 func echoClientAddress(w http.ResponseWriter, r *http.Request) {
@@ -40,7 +43,19 @@ func process(w *http.ResponseWriter, remoteIP string, port int) {
 	}
 	log.Println("request(Get) ->", urlPath.String())
 
-	resp, err := http.Get(urlPath.String())
+	client := &http.Client{
+		Transport: &http.Transport{
+			Dial: (&net.Dialer{
+				Timeout:   10 * time.Second,
+				KeepAlive: 10 * time.Second,
+			}).Dial,
+			TLSHandshakeTimeout:   8 * time.Second,
+			ResponseHeaderTimeout: 8 * time.Second,
+			ExpectContinueTimeout: 2 * time.Second,
+			TLSClientConfig:       &tls.Config{InsecureSkipVerify: true},
+		},
+	}
+	resp, err := client.Get(urlPath.String())
 	if err != nil {
 		log.Printf("ping client(server) error : %s", err.Error())
 		respData["result"] = err.Error()

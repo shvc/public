@@ -11,15 +11,14 @@ import (
 	"strings"
 	"time"
 
-	upnp "github.com/NebulousLabs/go-upnp"
+	goupnp "github.com/NebulousLabs/go-upnp"
 )
 
 // Version to record build bersion
-var Version = "1.0.3"
+var Version = "1.0.4"
 
 // ServerURL default Server URL
-//var ServerURL = "http://192.168.56.1:23456/ping"
-var ServerURL = "http://www.aweg.cc:23456/ping"
+var ServerURL = "http://vager.cc:23456/ping"
 
 func newListener() net.Listener {
 	l, err := net.Listen("tcp", "0.0.0.0:0")
@@ -37,7 +36,7 @@ func confirmExit() {
 	fmt.Scanln()
 }
 
-func clearPort(d *upnp.IGD, port uint16) {
+func clearPort(d *goupnp.IGD, port uint16) {
 	// un-forward a port
 	err := d.Clear(port)
 	if err != nil {
@@ -53,7 +52,7 @@ func main() {
 
 	fmt.Printf("Time and Version  : %s @ %s\n", time.Now().Format("2006-01-02 15:04:05"), Version)
 	// connect to router
-	d, err := upnp.Discover()
+	d, err := goupnp.Discover()
 	if err != nil {
 		fmt.Printf("Not find upnp Router: %s\n\n", err.Error())
 		confirmExit()

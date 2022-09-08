@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	goupnp "github.com/NebulousLabs/go-upnp"
+	goupnp "gitlab.com/NebulousLabs/go-upnp"
 )
 
 // Version to record build bersion

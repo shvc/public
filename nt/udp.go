@@ -95,12 +95,13 @@ func (s *UDPServer) initStore(ctx context.Context) {
 			case <-tick:
 				for k, v := range s.v {
 					if v.expire < now {
-						fmt.Println("expire ", k)
+						logger.Debug("record expired",
+							zap.String("key", k),
+						)
 						delete(s.v, k)
 					}
 				}
 			case <-ctx.Done():
-				// fmt.Println("ctx stop store checker")
 				return
 			}
 
@@ -392,18 +393,18 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 			var relayPeerAddr *net.UDPAddr
 			switch rcvData.Op {
 			case "ping": // from peer
-				logger.Info("got ping",
+				logger.Info("got peer ping",
 					zap.String("raddr", raddr.String()),
 					zap.Object("data", rcvData),
 				)
 				rspData.Op = "pong"
 				rspData.Msg = rcvData.Msg
-			case "pong": // from peer
+			case "pong": // ping response from peer
 				rspData.Op = "pong"
-				rspData.Msg = "ESTABLISHED@" + time.Now().Format(time.RFC3339)
+				rspData.Msg = "---------" + time.Now().Format(time.RFC3339) + "---------"
 				u.punched.Store(true)
 				time.Sleep(time.Duration(pongPeerDelay) * time.Millisecond)
-			case "pong1": // from server
+			case "pong1": // ping1 response from server
 				u.Lock()
 				u.publicAddress1 = rcvData.Public
 				u.Unlock()
@@ -417,7 +418,7 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 					os.Exit(0)
 				}
 				continue
-			case "pong2": // from server
+			case "pong2": // ping2 response from server
 				u.Lock()
 				u.publicAddress2 = rcvData.Public
 				u.peerAddress = rcvData.Peer
@@ -544,7 +545,7 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 		}
 
 		if u.punched.Load() {
-			logger.Info("punching success")
+			logger.Info("traversal success")
 			break
 		}
 
@@ -601,7 +602,6 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 			reqBuf4, _ := json.Marshal(reqData)
 			n, err = conn.WriteTo(reqBuf4, remoteAddr1)
 			if err != nil {
-				//e = fmt.Errorf("WriteTo server %s err: %w", remoteAddr2.String(), err)
 				logger.Warn("WriteTo server(relay) error",
 					zap.String("raddr", remoteAddr1.String()),
 					zap.String("peer", reqData.Peer),

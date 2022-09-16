@@ -91,13 +91,13 @@ int udpClient(const char *server_addr, int server_port)
 	setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(struct timeval));
 	char msg[0x40] = "0123456";
 	struct passwd *pwd = getpwuid(getuid());
+	sprintf(msg, "p2p->(%d:%s) say hello", getpid(), pwd->pw_name);
+	printf("send peer msg: %s\n", msg);
+	printf("wait peer response\n");
+
 	for (int i = 0; i < 5; ++i)
 	{
 		ret = sendto(sock, msg, strlen(msg) + 1, 0, (sockaddr *)&peerAddr, sizeof(sockaddr_in));
-		sprintf(msg, "p2p->(%d:%d:%s) say hello", getpid(), i, pwd->pw_name);
-		printf("send peer msg: %s\n", msg);
-		printf("wait peer response\n");
-
 		addrLen = sizeof(sockaddr_in);
 		ret = recvfrom(sock, buf, 0x40, 0, (sockaddr *)&recvAddr, &addrLen);
 		if (ret >= 0)

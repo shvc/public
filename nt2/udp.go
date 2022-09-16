@@ -441,7 +441,7 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 			return
 		}
 
-		logger.Info("ping1 ping2 and response success",
+		logger.Info("ping1+2 and response success",
 			zap.String("raddr1", remoteAddr1.String()),
 			zap.String("raddr2", remoteAddr2.String()),
 			zap.String("public1", rcvData1.Public),
@@ -491,6 +491,14 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 			continue
 		}
 		conn.SetReadDeadline(time.Time{})
+		if praddr.String() == remoteAddr1.String() || praddr.String() == remoteAddr2.String() {
+			logger.Info("ping peer invalid response",
+				zap.String("laddr", conn.LocalAddr().String()),
+				zap.String("raddr", praddr.String()),
+				zap.String("paddr", peerAddr.String()),
+			)
+			continue
+		}
 
 		rcvData := &data{}
 		if err := json.Unmarshal(buf[:n], rcvData); err != nil {
@@ -503,7 +511,7 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 			continue
 		}
 
-		logger.Info("ping peer and read success",
+		logger.Info("ping peer response success",
 			zap.String("laddr", conn.LocalAddr().String()),
 			zap.String("raddr", praddr.String()),
 			zap.String("paddr", peerAddr.String()),

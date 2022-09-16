@@ -211,6 +211,7 @@ func (s *UDPServer) startUDPServer(ctx context.Context, lc *net.ListenConfig, ad
 								)
 							} else {
 								s.delete(rcvData.ID)
+								s.delete(rspData.Msg)
 								logger.Debug("notify peer success",
 									zap.String("peer addr", rspData.Peer),
 									zap.String("peer id", rspData.Msg),

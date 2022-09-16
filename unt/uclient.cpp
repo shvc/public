@@ -113,10 +113,19 @@ int udpClient(const char *server_addr, int server_port)
 	}
 	printf("recv:%d, from:%s:%d, data:%s\n", ret, inet_ntoa(recvAddr.sin_addr), ntohs(recvAddr.sin_port), buf);
 	ret = sendto(sock, msg, strlen(msg) + 1, 0, (sockaddr *)&recvAddr, sizeof(sockaddr_in));
+	sleep(1);
+
+	sprintf(msg, "p2p->(%d:%s) say byebye!", getpid(), pwd->pw_name);
+	ret = sendto(sock, msg, strlen(msg) + 1, 0, (sockaddr *)&recvAddr, sizeof(sockaddr_in));
+	sleep(1);
+
+	ret = recvfrom(sock, buf, 0x40, 0, (sockaddr *)&recvAddr, &addrLen);
+	if (ret > 0)
+	{
+		printf("recv:%d, from:%s:%d, data:%s\n", ret, inet_ntoa(recvAddr.sin_addr), ntohs(recvAddr.sin_port), buf);
+	}
 	sleep(2);
-	buf[0] = 'F';
-	ret = sendto(sock, buf, strlen(buf) + 1, 0, (sockaddr *)&recvAddr, sizeof(sockaddr_in));
-	sleep(3);
+
 	close(sock);
 	return 0;
 }

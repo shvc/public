@@ -491,8 +491,8 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 			continue
 		}
 		conn.SetReadDeadline(time.Time{})
-		if praddr.String() == remoteAddr1.String() || praddr.String() == remoteAddr2.String() {
-			logger.Info("ping peer invalid response",
+		if praddr.String() != peerAddr.String() {
+			logger.Info("ping peer invalid raddr",
 				zap.String("laddr", conn.LocalAddr().String()),
 				zap.String("raddr", praddr.String()),
 				zap.String("paddr", peerAddr.String()),

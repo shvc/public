@@ -233,7 +233,7 @@ func (s *UDPServer) startUDPServer(ctx context.Context, lc *net.ListenConfig, ad
 						zap.String("id", rcvData.ID),
 						zap.String("laddr", conn.LocalAddr().String()),
 						zap.String("raddr", raddr.String()),
-						zap.String("op", rcvData.Op),
+						zap.Object("data", &rcvData),
 					)
 				}
 			default:
@@ -441,7 +441,7 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 			return
 		}
 
-		logger.Info("pong",
+		logger.Info("ping1 ping2 and response success",
 			zap.String("raddr1", remoteAddr1.String()),
 			zap.String("raddr2", remoteAddr2.String()),
 			zap.String("public1", rcvData1.Public),
@@ -460,9 +460,9 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 	for {
 		reqData.Remote = peerAddr.String()
 		reqData.Op = "ping"
-		reqData.Msg = RandomString(5)
+		reqData.Msg = "ping peer"
 		reqBuf3, _ := json.Marshal(reqData)
-		n, err := conn.WriteTo(reqBuf3, peerAddr)
+		_, err := conn.WriteTo(reqBuf3, peerAddr)
 		if err != nil {
 			logger.Warn("ping(WriteTo) peer error",
 				zap.String("laddr", conn.LocalAddr().String()),
@@ -471,8 +471,8 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 			)
 			continue
 		}
-		logger.Info("ping(WriteTo) peer success",
-			zap.Int("len", n),
+
+		logger.Debug("ping peer",
 			zap.String("laddr", conn.LocalAddr().String()),
 			zap.String("paddr", peerAddr.String()),
 			zap.Object("data", reqData),
@@ -481,11 +481,13 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 		conn.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
 		n, praddr, err := conn.ReadFrom(buf)
 		if err != nil {
+			// !strings.Contains(err.Error(), "i/o timeout") {
 			logger.Warn("ping ReadFrom peer error",
 				zap.String("laddr", conn.LocalAddr().String()),
 				zap.String("paddr", peerAddr.String()),
 				zap.Error(err),
 			)
+
 			continue
 		}
 		conn.SetReadDeadline(time.Time{})
@@ -500,6 +502,13 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 			)
 			continue
 		}
+
+		logger.Info("ping peer and read success",
+			zap.String("laddr", conn.LocalAddr().String()),
+			zap.String("raddr", praddr.String()),
+			zap.String("paddr", peerAddr.String()),
+			zap.Object("data", rcvData),
+		)
 
 		wg.Add(1)
 		go func() {
@@ -538,7 +547,7 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 			for {
 				reqData.Remote = peerAddr.String()
 				reqData.Op = "data"
-				reqData.Msg = "Hello " + RandomString(5)
+				reqData.Msg = "Hello " + time.Now().Format(time.RFC3339)
 				reqBuf3, _ := json.Marshal(reqData)
 				_, err := conn.WriteTo(reqBuf3, peerAddr)
 				if err != nil {

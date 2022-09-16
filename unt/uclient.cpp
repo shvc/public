@@ -111,12 +111,12 @@ int udpClient(const char *server_addr, int server_port)
 		close(sock);
 		return 0;
 	}
-	printf("recv from: %s:%d\n", inet_ntoa(recvAddr.sin_addr), ntohs(recvAddr.sin_port));
-	printf("data: %s\n", buf);
+	printf("recv:%d, from:%s:%d, data:%s\n", ret, inet_ntoa(recvAddr.sin_addr), ntohs(recvAddr.sin_port), buf);
 	ret = sendto(sock, msg, strlen(msg) + 1, 0, (sockaddr *)&recvAddr, sizeof(sockaddr_in));
 	sleep(2);
-	// buf[0] = 'F';
-	// sendto(sock, buf, strlen(buf) + 1, 0, (sockaddr*)&recvAddr, sizeof(sockaddr_in));
+	buf[0] = 'F';
+	ret = sendto(sock, buf, strlen(buf) + 1, 0, (sockaddr *)&recvAddr, sizeof(sockaddr_in));
+	sleep(3);
 	close(sock);
 	return 0;
 }

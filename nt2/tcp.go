@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/libp2p/go-reuseport"
@@ -114,12 +115,24 @@ func processTCPConn(conn net.Conn) {
 	}
 }
 
-func TCPClient(ctx context.Context, port uint, raddr1, raddr2 string, dialTimeout uint) (e error) {
-	networkType := "tcp4"
+type TCPClient struct {
+	clientID     string
+	networkType  string
+	sync.RWMutex // protect following var
+	peerAddress  string
+}
+
+func (c *TCPClient) TCPClient(ctx context.Context, port uint, raddr1, raddr2 string, dialTimeout uint) (e error) {
+	if c.networkType == "" {
+		c.networkType = "tcp4"
+	}
+	if c.clientID == "" {
+		c.clientID = RandomString(4)
+	}
 	var nla *net.TCPAddr
 	var err error
 	if port > 0 {
-		nla, err = net.ResolveTCPAddr(networkType, fmt.Sprintf(":%v", port))
+		nla, err = net.ResolveTCPAddr(c.networkType, fmt.Sprintf(":%v", port))
 		if err != nil {
 			return fmt.Errorf("resolve local addr err:%w", err)
 		}
@@ -131,15 +144,14 @@ func TCPClient(ctx context.Context, port uint, raddr1, raddr2 string, dialTimeou
 		Timeout:   time.Duration(dialTimeout) * time.Second,
 	}
 
-	conn1, err := dialer.DialContext(ctx, networkType, raddr1)
+	conn1, err := dialer.DialContext(ctx, c.networkType, raddr1)
 	if err != nil {
 		return fmt.Errorf("dial %s failed, err: %w", raddr1, err)
 	}
 	defer conn1.Close()
-	myID := RandomString(4)
 
 	reqData := &data{
-		ID: myID,
+		ID: c.clientID,
 	}
 	reqData.Remote = conn1.RemoteAddr().String()
 	reqData.Op = "ping1"
@@ -175,7 +187,7 @@ func TCPClient(ctx context.Context, port uint, raddr1, raddr2 string, dialTimeou
 	)
 
 	if raddr2 != "" {
-		conn2, err := dialer.DialContext(ctx, networkType, raddr2)
+		conn2, err := dialer.DialContext(ctx, c.networkType, raddr2)
 		if err != nil {
 			return fmt.Errorf("dial %s failed, err: %w", raddr2, err)
 		}

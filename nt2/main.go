@@ -13,6 +13,7 @@ import (
 
 var (
 	version     = "0.0.0"
+	clientID    = ""
 	logger      *zap.Logger
 	debug       bool
 	port        uint = 20019
@@ -23,14 +24,15 @@ var (
 
 func main() {
 	var rootCmd = &cobra.Command{
-		Use:   "nt",
-		Short: "nt",
-		Long: "nat traversal tool",
+		Use:     "nt",
+		Short:   "nt",
+		Long:    "nat traversal tool",
 		Version: version,
 		Hidden:  true,
 		PersistentPreRunE: func(*cobra.Command, []string) error {
 			var err error
 			initLogger(debug)
+			clientID, _ = os.Hostname()
 			return err
 		},
 	}
@@ -67,8 +69,10 @@ nt tc
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 			defer stop()
-
-			return TCPClient(ctx, port, serverAddr1, serverAddr2, dialTimeout)
+			ts := TCPClient{
+				clientID: clientID,
+			}
+			return ts.TCPClient(ctx, port, serverAddr1, serverAddr2, dialTimeout)
 		},
 	}
 	rootCmd.AddCommand(tcpClientCmd)
@@ -104,7 +108,9 @@ nt uc
 		Args: cobra.MinimumNArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
-			uc := UDPClient{}
+			uc := UDPClient{
+				clientID: clientID,
+			}
 			return uc.UDPClient(ctx, port, serverAddr1, serverAddr2, dialTimeout, pingPeerInterval, pingServerInterval, pongPeerDelay)
 		},
 	}

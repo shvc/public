@@ -308,6 +308,7 @@ func (s *UDPServer) UDPServer(ctx context.Context, port uint) error {
 }
 
 type UDPClient struct {
+	clientID     string
 	networkType  string
 	sync.RWMutex // protect following var
 	peerAddress  string
@@ -331,9 +332,12 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 	}
 	defer conn.Close()
 
-	myID := RandomString(4)
+	if u.clientID == "" {
+		u.clientID = RandomString(5)
+	}
+
 	logger.Info("udp client start",
-		zap.String("id", myID),
+		zap.String("id", u.clientID),
 		zap.String("laddr", conn.LocalAddr().String()),
 		zap.String("raddr1", raddr1),
 		zap.String("raddr2", raddr2),
@@ -341,7 +345,7 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 	)
 
 	reqData := &data{
-		ID: myID,
+		ID: u.clientID,
 	}
 	buf := make([]byte, 2048)
 	for {
@@ -354,6 +358,7 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 			return
 		}
 
+		conn.SetReadDeadline(time.Now().Add(20 * time.Second))
 		n, raddr1, err := conn.ReadFrom(buf)
 		if err != nil {
 			e = fmt.Errorf("ping1 ReadFrom server %s err: %w", remoteAddr1.String(), err)
@@ -397,7 +402,7 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 			e = fmt.Errorf("WriteTo server %s err: %w", remoteAddr2.String(), err)
 			return
 		}
-
+		conn.SetReadDeadline(time.Now().Add(20 * time.Second))
 		n, raddr2, err := conn.ReadFrom(buf)
 		if err != nil {
 			e = fmt.Errorf("ping2 ReadFrom server %s err: %w", remoteAddr1.String(), err)

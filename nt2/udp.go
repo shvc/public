@@ -319,7 +319,7 @@ func (u *UDPClient) setPeerAddress(paddr string) {
 	u.peerAddress = paddr
 }
 
-func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 string, dialTimeout, pingPeerInterval, pingServerInterval uint) (e error) {
+func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 string, dialTimeout, pingServerInterval, pingPeerInterval, helloInterval uint) (e error) {
 	u.networkType = "udp4"
 	remoteAddr1, err := net.ResolveUDPAddr(u.networkType, raddr1)
 	if err != nil {
@@ -451,6 +451,8 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 				}
 			case "pping": // from peer
 				u.punched.Store(true)
+			case "hello": // from peer
+				// p2p comunication
 			default:
 				logger.Warn("recv unknown msg",
 					zap.String("laddr", conn.LocalAddr().String()),
@@ -490,7 +492,7 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 			zap.Object("data", reqData),
 		)
 
-		time.Sleep(time.Duration(pingServerInterval) * time.Millisecond)
+		time.Sleep(time.Duration(pingServerInterval) * time.Second)
 	}
 
 	peerAddr, err := net.ResolveUDPAddr(u.networkType, peerAddress)
@@ -513,20 +515,20 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 			continue
 		}
 
+		if u.punched.Load() {
+			break
+		}
 		logger.Debug("ping peer success",
 			zap.String("laddr", conn.LocalAddr().String()),
 			zap.String("paddr", peerAddr.String()),
 		)
-
-		if u.punched.Load() {
-			break
-		}
+		time.Sleep(time.Duration(pingPeerInterval) * time.Millisecond)
 	}
 
 	for {
 		reqData.Remote = peerAddr.String()
-		reqData.Op = "pping"
-		reqData.Msg = "Hello p2p---> " + time.Now().Format(time.RFC3339)
+		reqData.Op = "hello"
+		reqData.Msg = "Hello @ " + time.Now().Format(time.RFC3339)
 		reqBuf3, _ := json.Marshal(reqData)
 		_, err := conn.WriteTo(reqBuf3, peerAddr)
 		if err != nil {
@@ -537,7 +539,7 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 			)
 			break
 		}
-		time.Sleep(time.Duration(pingPeerInterval) * time.Millisecond)
+		time.Sleep(time.Duration(helloInterval) * time.Second)
 	}
 
 	wg.Wait()

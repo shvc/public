@@ -1,4 +1,4 @@
-module nt2
+module ntn
 
 go 1.19
 

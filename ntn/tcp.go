@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"sync"
 	"time"
 
 	"github.com/libp2p/go-reuseport"
@@ -18,7 +17,7 @@ func TCPServer(port uint) error {
 	addr := fmt.Sprintf(":%v", port)
 	listener, err := reuseport.Listen(networkType, addr)
 	if err != nil {
-		return fmt.Errorf("listen fail, err: %w", err)
+		return fmt.Errorf("listen failed, error: %w", err)
 	}
 
 	logger.Info("tcp server started",
@@ -84,8 +83,7 @@ func processTCPConn(conn net.Conn) {
 		rcvData.Public = conn.RemoteAddr().String()
 
 		rspData := &data{
-			ID: rcvData.ID,
-			//Local:  conn.LocalAddr().String(),
+			ID:     rcvData.ID,
 			Public: rcvData.Public,
 		}
 
@@ -116,13 +114,11 @@ func processTCPConn(conn net.Conn) {
 }
 
 type TCPClient struct {
-	clientID     string
-	networkType  string
-	sync.RWMutex // protect following var
-	peerAddress  string
+	clientID    string
+	networkType string
 }
 
-func (c *TCPClient) TCPClient(ctx context.Context, port uint, raddr1, raddr2 string, dialTimeout uint) (e error) {
+func (c *TCPClient) TCPClient(ctx context.Context, port uint, serverAddress1, serverAddress2 string, dialTimeout uint) (e error) {
 	if c.networkType == "" {
 		c.networkType = "tcp4"
 	}
@@ -144,9 +140,9 @@ func (c *TCPClient) TCPClient(ctx context.Context, port uint, raddr1, raddr2 str
 		Timeout:   time.Duration(dialTimeout) * time.Second,
 	}
 
-	conn1, err := dialer.DialContext(ctx, c.networkType, raddr1)
+	conn1, err := dialer.DialContext(ctx, c.networkType, serverAddress1)
 	if err != nil {
-		return fmt.Errorf("dial %s failed, err: %w", raddr1, err)
+		return fmt.Errorf("dial %s failed, err: %w", serverAddress1, err)
 	}
 	defer conn1.Close()
 
@@ -162,7 +158,7 @@ func (c *TCPClient) TCPClient(ctx context.Context, port uint, raddr1, raddr2 str
 		return
 	}
 
-	logger.Info("send ping1 success",
+	logger.Debug("ping1 send success",
 		zap.String("laddr", conn1.LocalAddr().String()),
 		zap.String("raddr", conn1.RemoteAddr().String()),
 		zap.Int("len", n),
@@ -180,16 +176,16 @@ func (c *TCPClient) TCPClient(ctx context.Context, port uint, raddr1, raddr2 str
 		return
 	}
 
-	logger.Info("recv(ping1) success",
+	logger.Info("ping1 success",
 		zap.String("laddr", conn1.LocalAddr().String()),
 		zap.String("raddr", conn1.RemoteAddr().String()),
 		zap.Object("data", rcvData1),
 	)
 
-	if raddr2 != "" {
-		conn2, err := dialer.DialContext(ctx, c.networkType, raddr2)
+	if serverAddress2 != "" {
+		conn2, err := dialer.DialContext(ctx, c.networkType, serverAddress2)
 		if err != nil {
-			return fmt.Errorf("dial %s failed, err: %w", raddr2, err)
+			return fmt.Errorf("dial %s failed, err: %w", serverAddress2, err)
 		}
 		defer conn2.Close()
 
@@ -201,7 +197,7 @@ func (c *TCPClient) TCPClient(ctx context.Context, port uint, raddr1, raddr2 str
 			return
 		}
 
-		logger.Info("send ping2 success",
+		logger.Debug("send ping2 success",
 			zap.String("laddr", conn2.LocalAddr().String()),
 			zap.String("raddr", conn2.RemoteAddr().String()),
 			zap.Int("len", n),
@@ -218,7 +214,7 @@ func (c *TCPClient) TCPClient(ctx context.Context, port uint, raddr1, raddr2 str
 			return
 		}
 
-		logger.Info("recv(ping2) success",
+		logger.Info("ping2 success",
 			zap.String("laddr", conn2.LocalAddr().String()),
 			zap.String("raddr", conn2.RemoteAddr().String()),
 			zap.Object("data", rcvData2),

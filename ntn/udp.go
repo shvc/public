@@ -523,7 +523,7 @@ pingPeerLoop:
 	for {
 		reqData.Peer = peerAddr.String()
 		reqData.Op = "hello"
-		reqData.Msg = u.clientID + "say hello@" + time.Now().Format(time.RFC3339)
+		reqData.Msg = u.clientID + " say hello@" + time.Now().Format(time.RFC3339)
 		reqBuf3, _ := json.Marshal(reqData)
 		_, err := conn.WriteTo(reqBuf3, peerAddr)
 		if err != nil {

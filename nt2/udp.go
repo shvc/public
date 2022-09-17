@@ -217,7 +217,9 @@ func (s *UDPServer) startUDPServer(ctx context.Context, lc *net.ListenConfig, ad
 				}
 				if err := s.notify(conn, rspData.Msg, rspData.Peer, rcvData.Public); err != nil {
 					logger.Warn("notify peer error",
-						zap.String("peer addr", rspData.Peer),
+						zap.String("laddr", conn.LocalAddr().String()),
+						zap.String("raddr", rspData.Peer),
+						zap.String("peer address", rcvData.Public),
 						zap.String("peer id", rspData.Msg),
 						zap.Error(err),
 					)
@@ -225,8 +227,10 @@ func (s *UDPServer) startUDPServer(ctx context.Context, lc *net.ListenConfig, ad
 				}
 				s.delete(rcvData.ID)
 				s.delete(rspData.Msg)
-				logger.Debug("notify peer success",
-					zap.String("peer addr", rspData.Peer),
+				logger.Info("notify peer success",
+					zap.String("laddr", conn.LocalAddr().String()),
+					zap.String("raddr", rspData.Peer),
+					zap.String("peer address", rcvData.Public),
 					zap.String("peer id", rspData.Msg),
 				)
 			default:
@@ -240,9 +244,9 @@ func (s *UDPServer) startUDPServer(ctx context.Context, lc *net.ListenConfig, ad
 				continue
 			}
 			rspBuf, _ := json.Marshal(rspData)
-			n, err = conn.WriteTo(rspBuf, raddr)
+			_, err = conn.WriteTo(rspBuf, raddr)
 			if err != nil {
-				logger.Warn("send error",
+				logger.Warn("send response error",
 					zap.String("laddr", conn.LocalAddr().String()),
 					zap.String("raddr", raddr.String()),
 					zap.Object("data", rspData),
@@ -251,8 +255,7 @@ func (s *UDPServer) startUDPServer(ctx context.Context, lc *net.ListenConfig, ad
 				continue
 			}
 
-			logger.Info("WriteTo client success",
-				zap.Int("len", n),
+			logger.Info("response success",
 				zap.String("laddr", conn.LocalAddr().String()),
 				zap.String("raddr", raddr.String()),
 				zap.Object("data", rspData),
@@ -422,7 +425,6 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 			n, nraddr, err := conn.ReadFrom(buf)
 			if err != nil {
 				logger.Warn("ReadFrom error",
-					zap.String("laddr", conn.LocalAddr().String()),
 					zap.String("raddr", nraddr.String()),
 					zap.Error(err),
 				)
@@ -431,7 +433,6 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 			rcvData := &data{}
 			if err := json.Unmarshal(buf[:n], rcvData); err != nil {
 				logger.Warn("Unmarshal response error",
-					zap.String("laddr", conn.LocalAddr().String()),
 					zap.String("raddr", nraddr.String()),
 					zap.Error(err),
 				)
@@ -449,7 +450,6 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 				// p2p comunication
 			default:
 				logger.Warn("recv unknown msg",
-					zap.String("laddr", conn.LocalAddr().String()),
 					zap.String("raddr", nraddr.String()),
 					zap.Object("data", rcvData),
 				)
@@ -457,7 +457,6 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 			}
 
 			logger.Info("recv msg",
-				zap.String("laddr", conn.LocalAddr().String()),
 				zap.String("raddr", nraddr.String()),
 				zap.Object("data", rcvData),
 			)
@@ -479,11 +478,15 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 			e = fmt.Errorf("ping1 WriteTo server %s err: %w", remoteAddr1.String(), err)
 			return
 		}
-
 		logger.Info("ping3 success",
 			zap.String("raddr", remoteAddr1.String()),
 			zap.Object("data", reqData),
 		)
+
+		peerAddress = u.getPeerAddress()
+		if peerAddress != "" {
+			break
+		}
 
 		time.Sleep(time.Duration(pingServerInterval) * time.Second)
 	}
@@ -494,15 +497,17 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 	}
 
 	for {
-		//reqData.Remote = peerAddr.String()
+		if u.punched.Load() {
+			break
+		}
+
 		reqData.Op = "pping"
 		reqData.Msg = "ping peer"
 		reqData.Peer = peerAddr.String()
 		reqBuf3, _ := json.Marshal(reqData)
 		_, err := conn.WriteTo(reqBuf3, peerAddr)
 		if err != nil {
-			logger.Warn("ping(WriteTo) peer error",
-				zap.String("laddr", conn.LocalAddr().String()),
+			logger.Warn("ping peer error",
 				zap.String("paddr", peerAddr.String()),
 				zap.Error(err),
 			)
@@ -512,8 +517,8 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 		if u.punched.Load() {
 			break
 		}
+
 		logger.Debug("ping peer success",
-			zap.String("laddr", conn.LocalAddr().String()),
 			zap.String("paddr", peerAddr.String()),
 		)
 		time.Sleep(time.Duration(pingPeerInterval) * time.Millisecond)
@@ -526,8 +531,7 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 		reqBuf3, _ := json.Marshal(reqData)
 		_, err := conn.WriteTo(reqBuf3, peerAddr)
 		if err != nil {
-			logger.Warn("ping WriteTo peer error",
-				zap.String("laddr", conn.LocalAddr().String()),
+			logger.Warn("write peer error",
 				zap.String("raddr", peerAddr.String()),
 				zap.Error(err),
 			)

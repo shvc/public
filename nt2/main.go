@@ -94,9 +94,8 @@ nt us
 	}
 	rootCmd.AddCommand(udpServerCmd)
 
-	var pingPeerInterval uint = 2000
-	var pingServerInterval uint = 2000
-	var pongPeerDelay uint = 2000
+	var pingPeerInterval uint = 5000
+	var pingServerInterval uint = 5000
 	udpClientCmd := &cobra.Command{
 		Use:     "udp-client",
 		Aliases: []string{"uc"},
@@ -111,12 +110,11 @@ nt uc
 			uc := UDPClient{
 				clientID: clientID,
 			}
-			return uc.UDPClient(ctx, port, serverAddr1, serverAddr2, dialTimeout, pingPeerInterval, pingServerInterval, pongPeerDelay)
+			return uc.UDPClient(ctx, port, serverAddr1, serverAddr2, dialTimeout, pingPeerInterval, pingServerInterval)
 		},
 	}
 	udpClientCmd.Flags().UintVar(&pingPeerInterval, "ping-peer-interval", pingPeerInterval, "ping peer interval in millisecond")
 	udpClientCmd.Flags().UintVar(&pingServerInterval, "ping-server-interval", pingServerInterval, "ping server interval in millisecond")
-	udpClientCmd.Flags().UintVar(&pongPeerDelay, "pong-peer-delay", pongPeerDelay, "pong(response) peer delay in millisecond")
 	rootCmd.AddCommand(udpClientCmd)
 
 	udpSendCmd := &cobra.Command{

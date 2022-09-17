@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/libp2p/go-reuseport"
@@ -25,6 +26,7 @@ type data struct {
 
 type store struct {
 	expire int64
+	status int
 	data
 }
 
@@ -59,10 +61,10 @@ type UDPServer struct {
 	v map[string]store
 }
 
-func (s *UDPServer) set(v data) {
+func (s *UDPServer) set(v data, status int) {
 	s.Lock()
 	defer s.Unlock()
-	s.v[v.ID] = store{expire: time.Now().Unix() + 15, data: v}
+	s.v[v.ID] = store{expire: time.Now().Unix() + 10, data: v, status: status}
 }
 
 func (s *UDPServer) delete(k string) {
@@ -108,7 +110,7 @@ func (s *UDPServer) initStore(ctx context.Context) {
 	}()
 }
 
-func (s *UDPServer) selectOnePeer(exclude string) (peerID, peerAddr string) {
+func (s *UDPServer) selectOnePeer(exclude string, status int) (string, string) {
 	s.RLock()
 	defer s.RUnlock()
 
@@ -116,12 +118,14 @@ func (s *UDPServer) selectOnePeer(exclude string) (peerID, peerAddr string) {
 		if k == exclude {
 			continue
 		}
-		peerID = k
-		peerAddr = v.Public
-		return
+		if v.status != status {
+			continue
+		}
+
+		return k, v.data.Public
 	}
 
-	return
+	return "", ""
 }
 
 func (s *UDPServer) notify(conn net.PacketConn, ID, addr, peerAddr string) error {
@@ -133,7 +137,7 @@ func (s *UDPServer) notify(conn net.PacketConn, ID, addr, peerAddr string) error
 		ID:     ID,
 		Public: addr,
 		Peer:   peerAddr,
-		Op:     "pong",
+		Op:     "pong3",
 	}
 	rspBuf, _ := json.Marshal(rspData)
 	_, err = conn.WriteTo(rspBuf, pAddr)
@@ -189,53 +193,46 @@ func (s *UDPServer) startUDPServer(ctx context.Context, lc *net.ListenConfig, ad
 			}
 			// set public addr
 			rcvData.Public = raddr.String()
+			logger.Info("recv success",
+				zap.Int("len", n),
+				zap.String("laddr", conn.LocalAddr().String()),
+				zap.String("raddr", raddr.String()),
+				zap.Object("data", &rcvData),
+			)
 
 			rspData := &data{
 				ID:     rcvData.ID,
 				Public: rcvData.Public,
-				Op:     "pong",
 			}
 
 			switch rcvData.Op {
 			case "ping1":
-				s.set(rcvData)
+				s.set(rcvData, 1)
+				rspData.Op = "pong1"
 			case "ping2":
-				prevData, ok := s.get(rcvData.ID)
-				if ok {
-					if prevData.Public == rcvData.Public {
-						rspData.Msg, rspData.Peer = s.selectOnePeer(rcvData.ID)
-						if rspData.Msg != "" && rspData.Peer != "" {
-							if err := s.notify(conn, rspData.Msg, rspData.Peer, rcvData.Public); err != nil {
-								logger.Warn("notify peer error",
-									zap.String("peer addr", rspData.Peer),
-									zap.String("peer id", rspData.Msg),
-								)
-							} else {
-								s.delete(rcvData.ID)
-								s.delete(rspData.Msg)
-								logger.Debug("notify peer success",
-									zap.String("peer addr", rspData.Peer),
-									zap.String("peer id", rspData.Msg),
-								)
-							}
-						}
-					} else {
-						s.delete(rcvData.ID)
-						rspData.Msg = fmt.Sprintf("ping1 public:%s != ping2 public:%s", prevData.Public, rcvData.Public)
-						logger.Debug("delete record",
-							zap.String("record id", rcvData.ID),
-							zap.String("public addr1", prevData.Public),
-							zap.String("public addr2", rcvData.Public),
-						)
-					}
-				} else {
-					logger.Warn("not found ping1 record",
-						zap.String("id", rcvData.ID),
-						zap.String("laddr", conn.LocalAddr().String()),
-						zap.String("raddr", raddr.String()),
-						zap.Object("data", &rcvData),
-					)
+				s.set(rcvData, 2)
+				rspData.Op = "pong2"
+			case "ping3":
+				s.set(rcvData, 3)
+				rspData.Op = "pong3"
+				rspData.Msg, rspData.Peer = s.selectOnePeer(rcvData.ID, 3)
+				if rspData.Msg == "" || rspData.Peer == "" {
+					continue
 				}
+				if err := s.notify(conn, rspData.Msg, rspData.Peer, rcvData.Public); err != nil {
+					logger.Warn("notify peer error",
+						zap.String("peer addr", rspData.Peer),
+						zap.String("peer id", rspData.Msg),
+						zap.Error(err),
+					)
+					continue
+				}
+				s.delete(rcvData.ID)
+				s.delete(rspData.Msg)
+				logger.Debug("notify peer success",
+					zap.String("peer addr", rspData.Peer),
+					zap.String("peer id", rspData.Msg),
+				)
 			default:
 				logger.Warn("unknown op",
 					zap.Int("len", n),
@@ -246,29 +243,23 @@ func (s *UDPServer) startUDPServer(ctx context.Context, lc *net.ListenConfig, ad
 				)
 				continue
 			}
-
-			logger.Info("recv success",
-				zap.Int("len", n),
-				zap.String("laddr", conn.LocalAddr().String()),
-				zap.String("raddr", raddr.String()),
-				zap.Object("data", &rcvData),
-			)
-
 			rspBuf, _ := json.Marshal(rspData)
 			n, err = conn.WriteTo(rspBuf, raddr)
 			if err != nil {
 				logger.Warn("send error",
 					zap.String("laddr", conn.LocalAddr().String()),
 					zap.String("raddr", raddr.String()),
+					zap.Object("data", rspData),
 					zap.Error(err),
 				)
 				continue
 			}
 
-			logger.Debug("WriteTo client success",
+			logger.Info("WriteTo client success",
 				zap.Int("len", n),
 				zap.String("laddr", conn.LocalAddr().String()),
 				zap.String("raddr", raddr.String()),
+				zap.Object("data", rspData),
 			)
 		}
 	}
@@ -310,11 +301,25 @@ func (s *UDPServer) UDPServer(ctx context.Context, port uint) error {
 type UDPClient struct {
 	clientID     string
 	networkType  string
+	punched      atomic.Bool
 	sync.RWMutex // protect following var
 	peerAddress  string
 }
 
-func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 string, dialTimeout, pingPeerInterval, pingServerInterval, pongPeerDelay uint) (e error) {
+func (u *UDPClient) getPeerAddress() string {
+	u.RLock()
+	defer u.RUnlock()
+
+	return u.peerAddress
+}
+
+func (u *UDPClient) setPeerAddress(paddr string) {
+	u.Lock()
+	defer u.Unlock()
+	u.peerAddress = paddr
+}
+
+func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 string, dialTimeout, pingPeerInterval, pingServerInterval uint) (e error) {
 	u.networkType = "udp4"
 	remoteAddr1, err := net.ResolveUDPAddr(u.networkType, raddr1)
 	if err != nil {
@@ -348,118 +353,154 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 		ID: u.clientID,
 	}
 	buf := make([]byte, 2048)
+
+	reqData.Remote = remoteAddr1.String()
+	reqData.Op = "ping1"
+	reqBuf, _ := json.Marshal(reqData)
+	_, err = conn.WriteTo(reqBuf, remoteAddr1)
+	if err != nil {
+		e = fmt.Errorf("ping1 WriteTo server %s err: %w", remoteAddr1.String(), err)
+		return
+	}
+	n, sraddr1, err := conn.ReadFrom(buf)
+	if err != nil {
+		e = fmt.Errorf("ping1 ReadFrom server %s err: %w", remoteAddr1.String(), err)
+		return
+	}
+
+	rcvData1 := &data{}
+	if err := json.Unmarshal(buf[:n], rcvData1); err != nil {
+		e = fmt.Errorf("ping1 %s Unmarshal %s err: %w", sraddr1.String(), buf[:n], err)
+		return
+	}
+	if rcvData1.Op != "pong1" {
+		e = fmt.Errorf("ping1 %s got invalid response %s", sraddr1.String(), rcvData1.Op)
+		return
+	}
+
+	logger.Info("ping1 success",
+		zap.String("raddr", sraddr1.String()),
+		zap.String("public", rcvData1.Public),
+		zap.Object("response", rcvData1),
+	)
+
+	reqData.Remote = remoteAddr2.String()
+	reqData.Op = "ping2"
+	reqBuf2, _ := json.Marshal(reqData)
+	_, err = conn.WriteTo(reqBuf2, remoteAddr2)
+	if err != nil {
+		e = fmt.Errorf("WriteTo server %s err: %w", remoteAddr2.String(), err)
+		return
+	}
+
+	n, sraddr2, err := conn.ReadFrom(buf)
+	if err != nil {
+		e = fmt.Errorf("ping2 ReadFrom server %s err: %w", remoteAddr1.String(), err)
+		return
+	}
+
+	rcvData2 := &data{}
+	if err := json.Unmarshal(buf[:n], rcvData2); err != nil {
+		e = fmt.Errorf("ping2 %s Unmarshal %s err: %w", sraddr2.String(), buf[:n], err)
+		return
+	}
+	if rcvData2.Op != "pong2" {
+		e = fmt.Errorf("ping2 %s got invalid response %s", sraddr2.String(), rcvData2.Op)
+		return
+	}
+
+	if rcvData1.Public != rcvData2.Public {
+		e = fmt.Errorf("not cone, public addr %s != %s", rcvData1.Public, rcvData2.Public)
+		return
+	}
+
+	logger.Info("ping2 success",
+		zap.String("raddr", sraddr2.String()),
+		zap.String("public", rcvData2.Public),
+		zap.Object("response", rcvData2),
+	)
+
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			n, nraddr, err := conn.ReadFrom(buf)
+			if err != nil {
+				logger.Warn("ReadFrom error",
+					zap.String("laddr", conn.LocalAddr().String()),
+					zap.String("raddr", nraddr.String()),
+					zap.Error(err),
+				)
+				break
+			}
+			rcvData := &data{}
+			if err := json.Unmarshal(buf[:n], rcvData); err != nil {
+				logger.Warn("Unmarshal response error",
+					zap.String("laddr", conn.LocalAddr().String()),
+					zap.String("raddr", nraddr.String()),
+					zap.Error(err),
+				)
+				continue
+			}
+
+			switch rcvData.Op {
+			case "pong3": // from server
+				if rcvData.Peer != "" {
+					u.setPeerAddress(rcvData.Peer)
+				}
+			case "pping": // from peer
+				u.punched.Store(true)
+			default:
+				logger.Warn("recv unknown msg",
+					zap.String("laddr", conn.LocalAddr().String()),
+					zap.String("raddr", nraddr.String()),
+					zap.Object("data", rcvData),
+				)
+				continue
+			}
+
+			logger.Info("recv msg",
+				zap.String("laddr", conn.LocalAddr().String()),
+				zap.String("raddr", nraddr.String()),
+				zap.Object("data", rcvData),
+			)
+		}
+
+	}()
+
+	peerAddress := ""
 	for {
 		reqData.Remote = remoteAddr1.String()
-		reqData.Op = "ping1"
+		reqData.Op = "ping3"
 		reqBuf, _ := json.Marshal(reqData)
-		_, err := conn.WriteTo(reqBuf, remoteAddr1)
+		_, err = conn.WriteTo(reqBuf, remoteAddr1)
 		if err != nil {
 			e = fmt.Errorf("ping1 WriteTo server %s err: %w", remoteAddr1.String(), err)
 			return
 		}
 
-		conn.SetReadDeadline(time.Now().Add(20 * time.Second))
-		n, raddr1, err := conn.ReadFrom(buf)
-		if err != nil {
-			e = fmt.Errorf("ping1 ReadFrom server %s err: %w", remoteAddr1.String(), err)
-			return
-		}
-		if raddr1.String() != remoteAddr1.String() && raddr1.String() != remoteAddr2.String() {
-			logger.Info("ping1 recv msg not from server",
-				zap.String("raddr", raddr1.String()),
-			)
-			u.peerAddress = raddr1.String()
-			break
-		}
-		rcvData1 := &data{}
-		if err := json.Unmarshal(buf[:n], rcvData1); err != nil {
-			e = fmt.Errorf("ping1 %s Unmarshal %s err: %w", raddr1.String(), buf[:n], err)
-			return
-		}
-		if rcvData1.Op != "pong" {
-			e = fmt.Errorf("ping1 %s got invalid response %s", raddr1.String(), rcvData1.Op)
-			return
-		}
-		if rcvData1.Peer != "" {
-			logger.Info("ping1 got peer",
-				zap.String("raddr", remoteAddr1.String()),
-				zap.Object("data", rcvData1),
-			)
-			u.peerAddress = rcvData1.Peer
+		peerAddress = u.getPeerAddress()
+		if peerAddress != "" {
 			break
 		}
 
-		logger.Debug("ping1 server success",
+		logger.Info("ping3 success",
 			zap.String("raddr", remoteAddr1.String()),
-			zap.Object("data", rcvData1),
-		)
-
-		reqData.Remote = remoteAddr2.String()
-		reqData.Op = "ping2"
-		reqBuf2, _ := json.Marshal(reqData)
-		_, err = conn.WriteTo(reqBuf2, remoteAddr2)
-		if err != nil {
-			e = fmt.Errorf("WriteTo server %s err: %w", remoteAddr2.String(), err)
-			return
-		}
-		conn.SetReadDeadline(time.Now().Add(20 * time.Second))
-		n, raddr2, err := conn.ReadFrom(buf)
-		if err != nil {
-			e = fmt.Errorf("ping2 ReadFrom server %s err: %w", remoteAddr1.String(), err)
-			return
-		}
-		if raddr2.String() != remoteAddr1.String() && raddr2.String() != remoteAddr2.String() {
-			logger.Info("ping1 recv msg not from server",
-				zap.String("raddr", raddr2.String()),
-			)
-			u.peerAddress = raddr2.String()
-			break
-		}
-		rcvData2 := &data{}
-		if err := json.Unmarshal(buf[:n], rcvData2); err != nil {
-			e = fmt.Errorf("ping2 %s Unmarshal %s err: %w", raddr2.String(), buf[:n], err)
-			return
-		}
-		if rcvData2.Op != "pong" {
-			e = fmt.Errorf("ping2 %s got invalid response %s", raddr2.String(), rcvData2.Op)
-			return
-		}
-		if rcvData2.Peer != "" {
-			logger.Info("ping2 got peer",
-				zap.String("raddr", remoteAddr2.String()),
-				zap.Object("data", rcvData2),
-			)
-			u.peerAddress = rcvData2.Peer
-			break
-		}
-
-		if rcvData1.Public != rcvData2.Public {
-			logger.Info("not cone nat",
-				zap.String("public1", rcvData1.Public),
-				zap.String("public2", rcvData2.Public),
-			)
-			return
-		}
-
-		logger.Info("ping1+2 and response success",
-			zap.String("raddr1", remoteAddr1.String()),
-			zap.String("raddr2", remoteAddr2.String()),
-			zap.String("public1", rcvData1.Public),
-			zap.String("public2", rcvData2.Public),
-			zap.Object("data", rcvData2),
+			zap.Object("data", reqData),
 		)
 
 		time.Sleep(time.Duration(pingServerInterval) * time.Millisecond)
 	}
 
-	peerAddr, err := net.ResolveUDPAddr(u.networkType, u.peerAddress)
+	peerAddr, err := net.ResolveUDPAddr(u.networkType, peerAddress)
 	if err != nil {
-		return fmt.Errorf("resolve peer %s err: %w", u.peerAddress, err)
+		return fmt.Errorf("resolve peer %s err: %w", peerAddress, err)
 	}
-	wg := sync.WaitGroup{}
+
 	for {
-		reqData.Remote = peerAddr.String()
-		reqData.Op = "ping"
+		//reqData.Remote = peerAddr.String()
+		reqData.Op = "pping"
 		reqData.Msg = "ping peer"
 		reqBuf3, _ := json.Marshal(reqData)
 		_, err := conn.WriteTo(reqBuf3, peerAddr)
@@ -472,106 +513,31 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 			continue
 		}
 
-		logger.Debug("ping peer",
+		logger.Debug("ping peer success",
 			zap.String("laddr", conn.LocalAddr().String()),
 			zap.String("paddr", peerAddr.String()),
-			zap.Object("data", reqData),
 		)
 
-		conn.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
-		n, praddr, err := conn.ReadFrom(buf)
+		if u.punched.Load() {
+			break
+		}
+	}
+
+	for {
+		reqData.Remote = peerAddr.String()
+		reqData.Op = "pping"
+		reqData.Msg = "Hello p2p---> " + time.Now().Format(time.RFC3339)
+		reqBuf3, _ := json.Marshal(reqData)
+		_, err := conn.WriteTo(reqBuf3, peerAddr)
 		if err != nil {
-			// !strings.Contains(err.Error(), "i/o timeout") {
-			logger.Warn("ping ReadFrom peer error",
+			logger.Warn("ping WriteTo peer error",
 				zap.String("laddr", conn.LocalAddr().String()),
-				zap.String("paddr", peerAddr.String()),
+				zap.String("raddr", peerAddr.String()),
 				zap.Error(err),
 			)
-
-			continue
+			break
 		}
-		conn.SetReadDeadline(time.Time{})
-		if praddr.String() != peerAddr.String() {
-			logger.Info("ping peer invalid raddr",
-				zap.String("laddr", conn.LocalAddr().String()),
-				zap.String("raddr", praddr.String()),
-				zap.String("paddr", peerAddr.String()),
-			)
-			continue
-		}
-
-		rcvData := &data{}
-		if err := json.Unmarshal(buf[:n], rcvData); err != nil {
-			logger.Warn("ping Unmarshal peer response error",
-				zap.String("laddr", conn.LocalAddr().String()),
-				zap.String("raddr", praddr.String()),
-				zap.String("paddr", peerAddr.String()),
-				zap.Error(err),
-			)
-			continue
-		}
-
-		logger.Info("ping peer response success",
-			zap.String("laddr", conn.LocalAddr().String()),
-			zap.String("raddr", praddr.String()),
-			zap.String("paddr", peerAddr.String()),
-			zap.Object("data", rcvData),
-		)
-
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for {
-				n, nraddr, err := conn.ReadFrom(buf)
-				if err != nil {
-					logger.Warn("ReadFrom peer error",
-						zap.String("laddr", conn.LocalAddr().String()),
-						zap.String("raddr", nraddr.String()),
-						zap.Error(err),
-					)
-					break
-				}
-				rcvData := &data{}
-				if err := json.Unmarshal(buf[:n], rcvData); err != nil {
-					logger.Warn("Unmarshal peer response error",
-						zap.String("laddr", conn.LocalAddr().String()),
-						zap.String("raddr", nraddr.String()),
-						zap.Error(err),
-					)
-					continue
-				}
-				logger.Info("peer msg",
-					zap.String("laddr", conn.LocalAddr().String()),
-					zap.String("raddr", nraddr.String()),
-					zap.Object("data", rcvData),
-				)
-			}
-
-		}()
-
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for {
-				reqData.Remote = peerAddr.String()
-				reqData.Op = "data"
-				reqData.Msg = "Hello " + time.Now().Format(time.RFC3339)
-				reqBuf3, _ := json.Marshal(reqData)
-				_, err := conn.WriteTo(reqBuf3, peerAddr)
-				if err != nil {
-					logger.Warn("ping WriteTo peer error",
-						zap.String("laddr", conn.LocalAddr().String()),
-						zap.String("raddr", peerAddr.String()),
-						zap.Error(err),
-					)
-					break
-				}
-				time.Sleep(time.Duration(pingPeerInterval) * time.Millisecond)
-			}
-		}()
-
-		break
-
+		time.Sleep(time.Duration(pingPeerInterval) * time.Millisecond)
 	}
 
 	wg.Wait()

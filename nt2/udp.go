@@ -17,7 +17,6 @@ import (
 type data struct {
 	ID     string `json:"id,omitempty"`
 	Local  string `json:"local,omitempty"`
-	Remote string `json:"remote,omitempty"`
 	Public string `json:"public,omitempty"`
 	Peer   string `json:"peer,omitempty"`
 	Msg    string `json:"msg,omitempty"`
@@ -36,9 +35,6 @@ func (f *data) MarshalLogObject(enc zapcore.ObjectEncoder) error {
 	}
 	if f.Local != "" {
 		enc.AddString("local", f.Local)
-	}
-	if f.Remote != "" {
-		enc.AddString("remote", f.Remote)
 	}
 	if f.Public != "" {
 		enc.AddString("public", f.Public)
@@ -354,7 +350,6 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 	}
 	buf := make([]byte, 2048)
 
-	reqData.Remote = remoteAddr1.String()
 	reqData.Op = "ping1"
 	reqBuf, _ := json.Marshal(reqData)
 	_, err = conn.WriteTo(reqBuf, remoteAddr1)
@@ -384,7 +379,6 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 		zap.Object("response", rcvData1),
 	)
 
-	reqData.Remote = remoteAddr2.String()
 	reqData.Op = "ping2"
 	reqBuf2, _ := json.Marshal(reqData)
 	_, err = conn.WriteTo(reqBuf2, remoteAddr2)
@@ -473,18 +467,17 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 
 	peerAddress := ""
 	for {
-		reqData.Remote = remoteAddr1.String()
+		peerAddress = u.getPeerAddress()
+		if peerAddress != "" {
+			break
+		}
+
 		reqData.Op = "ping3"
 		reqBuf, _ := json.Marshal(reqData)
 		_, err = conn.WriteTo(reqBuf, remoteAddr1)
 		if err != nil {
 			e = fmt.Errorf("ping1 WriteTo server %s err: %w", remoteAddr1.String(), err)
 			return
-		}
-
-		peerAddress = u.getPeerAddress()
-		if peerAddress != "" {
-			break
 		}
 
 		logger.Info("ping3 success",
@@ -504,6 +497,7 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 		//reqData.Remote = peerAddr.String()
 		reqData.Op = "pping"
 		reqData.Msg = "ping peer"
+		reqData.Peer = peerAddr.String()
 		reqBuf3, _ := json.Marshal(reqData)
 		_, err := conn.WriteTo(reqBuf3, peerAddr)
 		if err != nil {
@@ -526,7 +520,7 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 	}
 
 	for {
-		reqData.Remote = peerAddr.String()
+		reqData.Peer = peerAddr.String()
 		reqData.Op = "hello"
 		reqData.Msg = "Hello @ " + time.Now().Format(time.RFC3339)
 		reqBuf3, _ := json.Marshal(reqData)

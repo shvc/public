@@ -153,7 +153,7 @@ func (c *TCPClient) TCPClient(ctx context.Context, port uint, raddr1, raddr2 str
 	reqData := &data{
 		ID: c.clientID,
 	}
-	reqData.Remote = conn1.RemoteAddr().String()
+
 	reqData.Op = "ping1"
 	reqBuf, _ := json.Marshal(reqData)
 	n, err := conn1.Write(reqBuf)
@@ -193,7 +193,6 @@ func (c *TCPClient) TCPClient(ctx context.Context, port uint, raddr1, raddr2 str
 		}
 		defer conn2.Close()
 
-		reqData.Remote = conn2.RemoteAddr().String()
 		reqData.Op = "ping2"
 		reqBuf2, _ := json.Marshal(reqData)
 		n, err = conn2.Write(reqBuf2)

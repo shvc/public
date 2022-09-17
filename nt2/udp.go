@@ -298,36 +298,22 @@ func (s *UDPServer) UDPServer(ctx context.Context, port uint) error {
 }
 
 type UDPClient struct {
-	clientID     string
-	networkType  string
-	punched      atomic.Bool
-	sync.RWMutex // protect following var
-	peerAddress  string
+	clientID    string
+	networkType string
+	punched     atomic.Bool
+	gotPeer     atomic.Bool
 }
 
-func (u *UDPClient) getPeerAddress() string {
-	u.RLock()
-	defer u.RUnlock()
-
-	return u.peerAddress
-}
-
-func (u *UDPClient) setPeerAddress(paddr string) {
-	u.Lock()
-	defer u.Unlock()
-	u.peerAddress = paddr
-}
-
-func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 string, dialTimeout, pingServerInterval, pingPeerInterval, helloInterval uint) (e error) {
+func (u *UDPClient) UDPClient(ctx context.Context, port uint, serverAddress1, serverAddress2 string, dialTimeout, pingServerInterval, pingPeerInterval, helloInterval uint) (e error) {
 	u.networkType = "udp4"
-	remoteAddr1, err := net.ResolveUDPAddr(u.networkType, raddr1)
+	serverAddr1, err := net.ResolveUDPAddr(u.networkType, serverAddress1)
 	if err != nil {
-		return fmt.Errorf("resolve addr %s err: %w", raddr1, err)
+		return fmt.Errorf("resolve addr %s err: %w", serverAddress1, err)
 	}
 
-	remoteAddr2, err := net.ResolveUDPAddr(u.networkType, raddr2)
+	serverAddr2, err := net.ResolveUDPAddr(u.networkType, serverAddress2)
 	if err != nil {
-		return fmt.Errorf("resolve addr %s err: %w", raddr2, err)
+		return fmt.Errorf("resolve addr %s err: %w", serverAddress2, err)
 	}
 
 	conn, err := reuseport.ListenPacket("udp4", fmt.Sprintf(":%v", port))
@@ -343,8 +329,8 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 	logger.Info("udp client start",
 		zap.String("id", u.clientID),
 		zap.String("laddr", conn.LocalAddr().String()),
-		zap.String("raddr1", raddr1),
-		zap.String("raddr2", raddr2),
+		zap.String("server1", serverAddress1),
+		zap.String("server2", serverAddress2),
 		zap.Uint("dial-timeout", dialTimeout),
 	)
 
@@ -355,14 +341,14 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 
 	reqData.Op = "ping1"
 	reqBuf, _ := json.Marshal(reqData)
-	_, err = conn.WriteTo(reqBuf, remoteAddr1)
+	_, err = conn.WriteTo(reqBuf, serverAddr1)
 	if err != nil {
-		e = fmt.Errorf("ping1 WriteTo server %s err: %w", remoteAddr1.String(), err)
+		e = fmt.Errorf("ping1 WriteTo server %s err: %w", serverAddr1.String(), err)
 		return
 	}
 	n, sraddr1, err := conn.ReadFrom(buf)
 	if err != nil {
-		e = fmt.Errorf("ping1 ReadFrom server %s err: %w", remoteAddr1.String(), err)
+		e = fmt.Errorf("ping1 ReadFrom server %s err: %w", serverAddr1.String(), err)
 		return
 	}
 
@@ -384,15 +370,15 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 
 	reqData.Op = "ping2"
 	reqBuf2, _ := json.Marshal(reqData)
-	_, err = conn.WriteTo(reqBuf2, remoteAddr2)
+	_, err = conn.WriteTo(reqBuf2, serverAddr2)
 	if err != nil {
-		e = fmt.Errorf("WriteTo server %s err: %w", remoteAddr2.String(), err)
+		e = fmt.Errorf("WriteTo server %s err: %w", serverAddr2.String(), err)
 		return
 	}
 
 	n, sraddr2, err := conn.ReadFrom(buf)
 	if err != nil {
-		e = fmt.Errorf("ping2 ReadFrom server %s err: %w", remoteAddr1.String(), err)
+		e = fmt.Errorf("ping2 ReadFrom server %s err: %w", serverAddr1.String(), err)
 		return
 	}
 
@@ -416,16 +402,17 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 		zap.String("public", rcvData2.Public),
 		zap.Object("response", rcvData2),
 	)
-
+	recvPeerMessage := make(chan string)
+	punchedMessage := make(chan bool)
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		for {
-			n, nraddr, err := conn.ReadFrom(buf)
+			n, raddr, err := conn.ReadFrom(buf)
 			if err != nil {
 				logger.Warn("ReadFrom error",
-					zap.String("raddr", nraddr.String()),
+					zap.String("raddr", raddr.String()),
 					zap.Error(err),
 				)
 				break
@@ -433,7 +420,7 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 			rcvData := &data{}
 			if err := json.Unmarshal(buf[:n], rcvData); err != nil {
 				logger.Warn("Unmarshal response error",
-					zap.String("raddr", nraddr.String()),
+					zap.String("raddr", raddr.String()),
 					zap.Error(err),
 				)
 				continue
@@ -441,66 +428,69 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 
 			switch rcvData.Op {
 			case "pong3": // from server
-				if rcvData.Peer != "" {
-					u.setPeerAddress(rcvData.Peer)
+				if rcvData.Peer != "" && !u.gotPeer.Load() {
+					u.gotPeer.Store(true)
+					recvPeerMessage <- rcvData.Peer
 				}
 			case "pping": // from peer
-				u.punched.Store(true)
+				if !u.punched.Load() {
+					u.punched.Store(true)
+					punchedMessage <- true
+				}
 			case "hello": // from peer
 				// p2p comunication
 			default:
 				logger.Warn("recv unknown msg",
-					zap.String("raddr", nraddr.String()),
+					zap.String("raddr", raddr.String()),
 					zap.Object("data", rcvData),
 				)
 				continue
 			}
 
 			logger.Info("recv msg",
-				zap.String("raddr", nraddr.String()),
+				zap.String("raddr", raddr.String()),
 				zap.Object("data", rcvData),
 			)
 		}
 
 	}()
 
+	ticker := time.NewTicker(time.Duration(pingServerInterval) * time.Second)
 	peerAddress := ""
+ping3Loop:
 	for {
-		peerAddress = u.getPeerAddress()
-		if peerAddress != "" {
-			break
-		}
-
 		reqData.Op = "ping3"
 		reqBuf, _ := json.Marshal(reqData)
-		_, err = conn.WriteTo(reqBuf, remoteAddr1)
+		_, err = conn.WriteTo(reqBuf, serverAddr1)
 		if err != nil {
-			e = fmt.Errorf("ping1 WriteTo server %s err: %w", remoteAddr1.String(), err)
+			e = fmt.Errorf("ping1 WriteTo server %s err: %w", serverAddr1.String(), err)
 			return
 		}
 		logger.Info("ping3 success",
-			zap.String("raddr", remoteAddr1.String()),
+			zap.String("raddr", serverAddr1.String()),
 			zap.Object("data", reqData),
 		)
-
-		peerAddress = u.getPeerAddress()
-		if peerAddress != "" {
-			break
+		select {
+		case peerAddress = <-recvPeerMessage:
+			logger.Info("got peer address",
+				zap.String("raddr", serverAddr1.String()),
+				zap.String("peer", peerAddress),
+			)
+			ticker.Stop()
+			break ping3Loop
+		case <-ticker.C:
+			continue
 		}
 
-		time.Sleep(time.Duration(pingServerInterval) * time.Second)
 	}
 
 	peerAddr, err := net.ResolveUDPAddr(u.networkType, peerAddress)
 	if err != nil {
 		return fmt.Errorf("resolve peer %s err: %w", peerAddress, err)
 	}
-
+	ticker = time.NewTicker(time.Duration(pingPeerInterval) * time.Millisecond)
+pingPeerLoop:
 	for {
-		if u.punched.Load() {
-			break
-		}
-
 		reqData.Op = "pping"
 		reqData.Msg = "ping peer"
 		reqData.Peer = peerAddr.String()
@@ -511,23 +501,29 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 				zap.String("paddr", peerAddr.String()),
 				zap.Error(err),
 			)
+		} else {
+			logger.Debug("ping peer success",
+				zap.String("paddr", peerAddr.String()),
+			)
+		}
+		select {
+		case <-punchedMessage:
+			logger.Info("traversal success",
+				zap.String("raddr", serverAddr1.String()),
+				zap.String("peer", peerAddress),
+			)
+			ticker.Stop()
+			break pingPeerLoop
+		case <-ticker.C:
 			continue
 		}
 
-		if u.punched.Load() {
-			break
-		}
-
-		logger.Debug("ping peer success",
-			zap.String("paddr", peerAddr.String()),
-		)
-		time.Sleep(time.Duration(pingPeerInterval) * time.Millisecond)
 	}
 
 	for {
 		reqData.Peer = peerAddr.String()
 		reqData.Op = "hello"
-		reqData.Msg = "Hello @ " + time.Now().Format(time.RFC3339)
+		reqData.Msg = u.clientID + "say hello@" + time.Now().Format(time.RFC3339)
 		reqBuf3, _ := json.Marshal(reqData)
 		_, err := conn.WriteTo(reqBuf3, peerAddr)
 		if err != nil {
@@ -541,7 +537,6 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 	}
 
 	wg.Wait()
-
 	return
 }
 

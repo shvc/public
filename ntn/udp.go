@@ -399,6 +399,7 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, serverAddress1, se
 		logger.Warn("not a cone nat",
 			zap.String("public addr1", rcvData1.Public),
 			zap.String("public addr2", rcvData2.Public),
+			zap.Object("data", rcvData2),
 		)
 		return
 	}

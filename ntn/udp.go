@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	mrand "math/rand"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -13,6 +14,10 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
+
+func init() {
+	mrand.Seed(time.Now().Unix())
+}
 
 type data struct {
 	ID     string `json:"id,omitempty"`
@@ -304,7 +309,7 @@ type UDPClient struct {
 	gotPeer     atomic.Bool
 }
 
-func (u *UDPClient) UDPClient(ctx context.Context, port uint, serverAddress1, serverAddress2 string, dialTimeout, pingServerInterval, pingPeerInterval, helloInterval uint) (e error) {
+func (u *UDPClient) UDPClient(ctx context.Context, port uint, serverAddress1, serverAddress2 string, dialTimeout, pingServerInterval, pingPeerInterval, helloInterval uint32) (e error) {
 	u.networkType = "udp4"
 	serverAddr1, err := net.ResolveUDPAddr(u.networkType, serverAddress1)
 	if err != nil {
@@ -322,16 +327,14 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, serverAddress1, se
 	}
 	defer conn.Close()
 
-	if u.clientID == "" {
-		u.clientID = RandomString(5)
-	}
+	u.clientID = fmt.Sprintf("%s:%d", u.clientID, port)
 
 	logger.Info("udp client start",
 		zap.String("id", u.clientID),
 		zap.String("laddr", conn.LocalAddr().String()),
 		zap.String("server1", serverAddress1),
 		zap.String("server2", serverAddress2),
-		zap.Uint("dial-timeout", dialTimeout),
+		zap.Uint32("dial-timeout", dialTimeout),
 	)
 
 	reqData := &data{
@@ -393,7 +396,10 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, serverAddress1, se
 	}
 
 	if rcvData1.Public != rcvData2.Public {
-		e = fmt.Errorf("not cone, public addr %s != %s", rcvData1.Public, rcvData2.Public)
+		logger.Warn("not a cone nat",
+			zap.String("public addr1", rcvData1.Public),
+			zap.String("public addr2", rcvData2.Public),
+		)
 		return
 	}
 
@@ -427,12 +433,12 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, serverAddress1, se
 			}
 
 			switch rcvData.Op {
-			case "pong3": // from server
+			case "pong3": // response of ping3 from server
 				if rcvData.Peer != "" && !u.gotPeer.Load() {
 					u.gotPeer.Store(true)
 					recvPeerMessage <- rcvData.Peer
 				}
-			case "pping": // from peer
+			case "pping": // peer ping from peer
 				if !u.punched.Load() {
 					u.punched.Store(true)
 					punchedMessage <- true
@@ -488,7 +494,7 @@ ping3Loop:
 	if err != nil {
 		return fmt.Errorf("resolve peer %s err: %w", peerAddress, err)
 	}
-	ticker = time.NewTicker(time.Duration(pingPeerInterval) * time.Millisecond)
+	ticker = time.NewTicker(time.Duration(pingPeerInterval+mrand.Uint32()%pingPeerInterval) * time.Millisecond)
 pingPeerLoop:
 	for {
 		reqData.Op = "pping"

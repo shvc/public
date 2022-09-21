@@ -118,13 +118,12 @@ type TCPClient struct {
 	networkType string
 }
 
-func (c *TCPClient) TCPClient(ctx context.Context, port uint, serverAddress1, serverAddress2 string, dialTimeout uint) (e error) {
+func (c *TCPClient) TCPClient(ctx context.Context, port uint, serverAddress1, serverAddress2 string, dialTimeout uint32) (e error) {
 	if c.networkType == "" {
 		c.networkType = "tcp4"
 	}
-	if c.clientID == "" {
-		c.clientID = RandomString(4)
-	}
+	c.clientID = fmt.Sprintf("%s:%d", c.clientID, port)
+
 	var nla *net.TCPAddr
 	var err error
 	if port > 0 {

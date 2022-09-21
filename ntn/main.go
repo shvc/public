@@ -16,10 +16,10 @@ var (
 	clientID    = ""
 	logger      *zap.Logger
 	debug       bool
-	port        uint = 20019
-	serverAddr1      = "47.100.31.117:20019"
-	serverAddr2      = "47.103.138.1:20019"
-	dialTimeout uint = 5
+	port        uint   = 20019
+	serverAddr1        = "47.100.31.117:20019"
+	serverAddr2        = "47.103.138.1:20019"
+	dialTimeout uint32 = 5
 )
 
 func main() {
@@ -38,7 +38,7 @@ func main() {
 	}
 	rootCmd.PersistentFlags().BoolVarP(&debug, "debug", "", false, "show debug log")
 	rootCmd.PersistentFlags().UintVarP(&port, "port", "p", port, "serve(listen) port")
-	rootCmd.PersistentFlags().UintVar(&dialTimeout, "dial-timeout", dialTimeout, "client dial timeout")
+	rootCmd.PersistentFlags().Uint32Var(&dialTimeout, "dial-timeout", dialTimeout, "client dial timeout")
 	rootCmd.PersistentFlags().StringVar(&serverAddr1, "s1", serverAddr1, "server address1")
 	rootCmd.PersistentFlags().StringVar(&serverAddr2, "s2", serverAddr2, "server address2")
 
@@ -94,9 +94,9 @@ nt us
 	}
 	rootCmd.AddCommand(udpServerCmd)
 
-	var pingServerInterval uint = 10
-	var pingPeerInterval uint = 100
-	var helloInterval uint = 10
+	var pingServerInterval uint32 = 10
+	var pingPeerInterval uint32 = 100
+	var helloInterval uint32 = 10
 	udpClientCmd := &cobra.Command{
 		Use:     "udp-client",
 		Aliases: []string{"uc"},
@@ -114,9 +114,9 @@ nt uc
 			return uc.UDPClient(ctx, port, serverAddr1, serverAddr2, dialTimeout, pingServerInterval, pingPeerInterval, helloInterval)
 		},
 	}
-	udpClientCmd.Flags().UintVar(&pingServerInterval, "ping-server-interval", pingServerInterval, "ping server interval in second")
-	udpClientCmd.Flags().UintVar(&pingPeerInterval, "ping-peer-interval", pingPeerInterval, "ping peer interval in millsecond")
-	udpClientCmd.Flags().UintVar(&helloInterval, "hello-interval", helloInterval, "say hello interval in second")
+	udpClientCmd.Flags().Uint32Var(&pingServerInterval, "ping-server-interval", pingServerInterval, "ping server interval in second")
+	udpClientCmd.Flags().Uint32Var(&pingPeerInterval, "ping-peer-interval", pingPeerInterval, "ping peer interval in millsecond")
+	udpClientCmd.Flags().Uint32Var(&helloInterval, "hello-interval", helloInterval, "say hello interval in second")
 	rootCmd.AddCommand(udpClientCmd)
 
 	udpSendCmd := &cobra.Command{

@@ -3,8 +3,5 @@ go 1.19
 use (
 	./nt
 	./ntn
-	./qclient
-	./qserver
 	./upnp
-	./qc
 )

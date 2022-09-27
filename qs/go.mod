@@ -3,7 +3,7 @@ module qs
 go 1.19
 
 require (
-	github.com/lucas-clemente/quic-go v0.29.0
+	github.com/lucas-clemente/quic-go v0.29.1
 	github.com/spf13/cobra v1.5.0
 	go.uber.org/zap v1.23.0
 )

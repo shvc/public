@@ -16,3 +16,7 @@
 /unt/uclient
 /upnp/upnp
 /ntn/ntn
+/qc/qc
+/qs/qs
+/qs/*.pem
+/qs/*.key

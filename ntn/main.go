@@ -59,8 +59,10 @@ ntn server
 		Args: cobra.ExactArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
-			us := &PublicServer{}
-			return us.Start(ctx, port)
+			sv := &PublicServer{
+				pingServerInterval: pingPeerInterval,
+			}
+			return sv.Start(ctx, port)
 		},
 	}
 	rootCmd.AddCommand(serverCmd)
@@ -110,7 +112,6 @@ ntn us
 * run udp client
 ntn uc
 `,
-		Args: cobra.MinimumNArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 			u := NewUdpPeer(clientID, serverAddr1, serverAddr2)

@@ -408,7 +408,7 @@ func (u *UDPPeer) PeerClientUDP(ctx context.Context, port uint, dialTimeout, pin
 			if i == pingPeerCount {
 				reqData.Msg = "byebye"
 			} else {
-				reqData.Msg = u.peerID + " say hello@" + time.Now().Format(time.RFC3339)
+				reqData.Msg = u.peerID + " say hello@" + time.Now().Format("2006-01-02T15:04:05Z")
 			}
 		}
 		reqBuf3, _ := json.Marshal(reqData)

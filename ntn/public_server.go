@@ -278,10 +278,10 @@ func (s *PublicServer) startUDPServer(ctx context.Context, lc *net.ListenConfig,
 
 			switch rcvData.Op {
 			case "ping1":
-				s.set(rcvData, 1)
+				//s.set(rcvData, 1)
 				rspData.Op = "pong1"
 			case "ping2":
-				s.set(rcvData, 2)
+				//s.set(rcvData, 2)
 				rspData.Op = "pong2"
 			case "report":
 				s.set(rcvData, 3)

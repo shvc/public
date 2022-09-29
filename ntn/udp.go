@@ -379,8 +379,6 @@ requestLoop:
 			zap.Object("req", reqData),
 		)
 
-		time.Sleep(time.Duration(pingServerInterval) * time.Second)
-
 		select {
 		case peerAddress = <-peerAddressMesage:
 			logger.Info("got peer address",
@@ -419,13 +417,13 @@ requestLoop:
 
 		err = u.writeData(conn, peerAddr, reqData)
 		if err != nil {
-			logger.Warn("send msg to peer error",
+			logger.Warn("write to peer error",
 				zap.String("paddr", peerAddr.String()),
 				zap.String("op", reqData.Op),
 				zap.Error(err),
 			)
 		} else {
-			logger.Debug("send msg to peer success",
+			logger.Debug("write to peer success",
 				zap.String("op", reqData.Op),
 				zap.String("msg", reqData.Msg),
 				zap.String("paddr", peerAddr.String()),
@@ -433,7 +431,7 @@ requestLoop:
 		}
 		select {
 		case <-punchedMessage:
-			logger.Info("nat traversal success",
+			logger.Info("punch success",
 				zap.String("raddr", u.serverAddr1.String()),
 				zap.String("peer", peerAddress),
 			)

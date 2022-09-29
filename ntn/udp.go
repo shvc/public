@@ -287,9 +287,9 @@ func (u *UDPPeer) UDPPeerServer(ctx context.Context, port uint, dialTimeout, rep
 			e = fmt.Errorf("report to server %s err: %w", u.serverAddr1.String(), err)
 			return
 		}
-		logger.Info("report success",
+		logger.Info("report",
 			zap.String("raddr", u.serverAddr1.String()),
-			zap.Object("data", reqData),
+			zap.Object("req", reqData),
 		)
 		time.Sleep(time.Duration(reportInterval) * time.Second)
 	}
@@ -348,6 +348,7 @@ func (u *UDPPeer) PeerClientUDP(ctx context.Context, port uint, dialTimeout, pin
 
 	punchedMessage := make(chan bool)
 	go func() {
+		punched := false
 		for {
 			n, raddr, err := conn.ReadFrom(buf)
 			if err != nil {
@@ -368,7 +369,11 @@ func (u *UDPPeer) PeerClientUDP(ctx context.Context, port uint, dialTimeout, pin
 
 			switch rcvData.Op {
 			case "sping": // peer server ping
-				punchedMessage <- true
+				if !punched {
+					punched = true
+					punchedMessage <- true
+				}
+				continue
 			case "cping": // peer client ping
 				if rcvData.Msg == "byebye" {
 					fmt.Println(rcvData.Op, rcvData.Msg)

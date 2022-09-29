@@ -22,7 +22,7 @@ var (
 	dialTimeout        uint32 = 5
 	pingServerInterval uint32 = 10
 	pingPeerInterval   uint32 = 100
-	pingPeerNum        uint32 = 100
+	pingPeerNum        uint32 = 20
 )
 
 func main() {

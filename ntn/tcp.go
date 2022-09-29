@@ -4,114 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"time"
 
 	"github.com/libp2p/go-reuseport"
 	"go.uber.org/zap"
 )
-
-func TCPServer(port uint) error {
-	networkType := "tcp4"
-	addr := fmt.Sprintf(":%v", port)
-	listener, err := reuseport.Listen(networkType, addr)
-	if err != nil {
-		return fmt.Errorf("listen failed, error: %w", err)
-	}
-
-	logger.Info("tcp server started",
-		zap.String("addr", listener.Addr().String()),
-	)
-
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			logger.Warn("accept error",
-				zap.String("addr", listener.Addr().String()),
-				zap.Error(err),
-			)
-			continue
-		}
-		go processTCPConn(conn)
-	}
-}
-
-func processTCPConn(conn net.Conn) {
-	defer conn.Close()
-	buf := make([]byte, 1892)
-	for {
-		n, err := conn.Read(buf)
-		if err != nil {
-			if err == io.EOF {
-				logger.Info("conn closed",
-					zap.String("laddr", conn.LocalAddr().String()),
-					zap.String("raddr", conn.RemoteAddr().String()),
-				)
-			} else {
-				logger.Warn("recv error",
-					zap.String("laddr", conn.LocalAddr().String()),
-					zap.String("raddr", conn.RemoteAddr().String()),
-					zap.Error(err),
-				)
-			}
-			break
-		}
-
-		rcvData := &data{}
-		if err := json.Unmarshal(buf[:n], rcvData); err != nil {
-			logger.Warn("readFrom success but decode error",
-				zap.Int("len", n),
-				zap.String("laddr", conn.LocalAddr().String()),
-				zap.String("raddr", conn.RemoteAddr().String()),
-				zap.ByteString("content", buf[:n]),
-				zap.Error(err),
-			)
-			continue
-		}
-
-		if rcvData.ID == "" {
-			logger.Warn("readFrom success but no ID",
-				zap.Int("len", n),
-				zap.String("laddr", conn.LocalAddr().String()),
-				zap.String("raddr", conn.RemoteAddr().String()),
-				zap.ByteString("content", buf[:n]),
-			)
-			continue
-		}
-		// set public addr
-		rcvData.Public = conn.RemoteAddr().String()
-
-		rspData := &data{
-			ID:     rcvData.ID,
-			Public: rcvData.Public,
-		}
-
-		switch rcvData.Op {
-		case "ping1":
-			rspData.Op = "pong1"
-		case "ping2":
-			rspData.Op = "pong2"
-		}
-
-		rspBuf, _ := json.Marshal(rspData)
-		n, err = conn.Write(rspBuf)
-		if err != nil {
-			logger.Warn("send error",
-				zap.String("laddr", conn.LocalAddr().String()),
-				zap.String("raddr", conn.RemoteAddr().String()),
-				zap.Error(err),
-			)
-			break
-		}
-
-		logger.Debug("send success",
-			zap.String("laddr", conn.LocalAddr().String()),
-			zap.String("raddr", conn.RemoteAddr().String()),
-			zap.Int("len", n),
-		)
-	}
-}
 
 type TCPClient struct {
 	clientID    string

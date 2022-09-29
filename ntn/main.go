@@ -12,14 +12,17 @@ import (
 )
 
 var (
-	version     = "0.0.0"
-	clientID    = ""
-	logger      *zap.Logger
-	debug       bool
-	port        uint   = 20019
-	serverAddr1        = "47.100.31.117:20019"
-	serverAddr2        = "47.103.138.1:20019"
-	dialTimeout uint32 = 5
+	version            = "0.0.0"
+	clientID           = ""
+	logger             *zap.Logger
+	debug              bool
+	port               uint   = 20017
+	serverAddr1               = "47.100.31.117:20019"
+	serverAddr2               = "47.103.138.1:20019"
+	dialTimeout        uint32 = 5
+	pingServerInterval uint32 = 10
+	pingPeerInterval   uint32 = 100
+	pingPeerNum        uint32 = 100
 )
 
 func main() {
@@ -41,21 +44,25 @@ func main() {
 	rootCmd.PersistentFlags().Uint32Var(&dialTimeout, "dial-timeout", dialTimeout, "client dial timeout")
 	rootCmd.PersistentFlags().StringVar(&serverAddr1, "s1", serverAddr1, "server address1")
 	rootCmd.PersistentFlags().StringVar(&serverAddr2, "s2", serverAddr2, "server address2")
+	rootCmd.Flags().Uint32Var(&pingServerInterval, "ping-server-interval", pingServerInterval, "ping server interval in second")
+	rootCmd.Flags().Uint32Var(&pingPeerInterval, "ping-peer-interval", pingPeerInterval, "ping peer interval in millsecond")
+	rootCmd.Flags().Uint32Var(&pingPeerNum, "ping-peer-num", pingPeerNum, "ping peer total num")
 
-	tcpServerCmd := &cobra.Command{
-		Use:     "tcp-server",
-		Aliases: []string{"ts"},
-		Short:   "tcp server",
-		Long: `tcp server:
-* start tcp server
-nt ts
+	serverCmd := &cobra.Command{
+		Use:   "server",
+		Short: "public server",
+		Long: `public server:
+* start udp server
+ntn server
 `,
 		Args: cobra.ExactArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return TCPServer(port)
+			ctx := context.Background()
+			us := &PublicServer{}
+			return us.UDPServer(ctx, port)
 		},
 	}
-	rootCmd.AddCommand(tcpServerCmd)
+	rootCmd.AddCommand(serverCmd)
 
 	tcpClientCmd := &cobra.Command{
 		Use:     "tcp-client",
@@ -63,7 +70,7 @@ nt ts
 		Short:   "tcp client",
 		Long: `tcp client:
 * run tcp client
-nt tc
+ntn tc
 `,
 		Args: cobra.MinimumNArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -77,67 +84,41 @@ nt tc
 	}
 	rootCmd.AddCommand(tcpClientCmd)
 
-	udpServerCmd := &cobra.Command{
-		Use:     "udp-server",
+	udpPeerServerCmd := &cobra.Command{
+		Use:     "udp-peer-server",
 		Aliases: []string{"us"},
-		Short:   "udp server",
-		Long: `udp server:
-* start udp server
-nt us
+		Short:   "udp peer server",
+		Long: `udp peer server:
+* start udp peer server
+ntn us
 `,
-		Args: cobra.ExactArgs(0),
+		Args: cobra.RangeArgs(2, 3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
-			us := &UDPServer{}
-			return us.UDPServer(ctx, port)
+			u := NewUdpPeer(clientID, serverAddr1, serverAddr2)
+			return u.UDPPeerServer(ctx, port, dialTimeout, pingServerInterval, pingPeerInterval, pingPeerNum)
 		},
 	}
-	rootCmd.AddCommand(udpServerCmd)
+	rootCmd.AddCommand(udpPeerServerCmd)
 
-	var pingServerInterval uint32 = 10
-	var pingPeerInterval uint32 = 100
 	var helloInterval uint32 = 10
-	udpClientCmd := &cobra.Command{
-		Use:     "udp-client",
+	udpPeerClientCmd := &cobra.Command{
+		Use:     "udp-peer-client",
 		Aliases: []string{"uc"},
-		Short:   "udp client",
-		Long: `udp client:
+		Short:   "udp peer client",
+		Long: `udp peer client:
 * run udp client
-nt uc
+ntn uc
 `,
 		Args: cobra.MinimumNArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
-			uc := UDPClient{
-				clientID: clientID,
-			}
-			return uc.UDPClient(ctx, port, serverAddr1, serverAddr2, dialTimeout, pingServerInterval, pingPeerInterval, helloInterval)
+			u := NewUdpPeer(clientID, serverAddr1, serverAddr2)
+			return u.PeerClientUDP(ctx, port, dialTimeout, pingServerInterval, pingPeerInterval, pingPeerNum, helloInterval)
 		},
 	}
-	udpClientCmd.Flags().Uint32Var(&pingServerInterval, "ping-server-interval", pingServerInterval, "ping server interval in second")
-	udpClientCmd.Flags().Uint32Var(&pingPeerInterval, "ping-peer-interval", pingPeerInterval, "ping peer interval in millsecond")
-	udpClientCmd.Flags().Uint32Var(&helloInterval, "hello-interval", helloInterval, "say hello interval in second")
-	rootCmd.AddCommand(udpClientCmd)
-
-	udpSendCmd := &cobra.Command{
-		Use:   "udp-send <data> <server-addr> [client-addr]",
-		Short: "udp client send data",
-		Long: `udp client send data:
-* udp client send data
-nt udp-send test-data-001 172.16.1.1:9234
-`,
-		Args: cobra.RangeArgs(2, 3),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			laddr := ""
-			if len(args) == 3 {
-				laddr = args[2]
-			}
-			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-			defer stop()
-			return UDPSend(ctx, laddr, args[1], args[0], 3)
-		},
-	}
-	rootCmd.AddCommand(udpSendCmd)
+	udpPeerClientCmd.Flags().Uint32Var(&helloInterval, "hello-interval", helloInterval, "say hello interval in second")
+	rootCmd.AddCommand(udpPeerClientCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)

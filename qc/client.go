@@ -6,11 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	mrand "math/rand"
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -32,24 +32,27 @@ type data struct {
 	Op     string `json:"op,omitempty"`
 }
 
-func (f *data) MarshalLogObject(enc zapcore.ObjectEncoder) error {
-	if f.ID != "" {
-		enc.AddString("id", f.ID)
+func (d *data) MarshalLogObject(enc zapcore.ObjectEncoder) error {
+	if d.ID != "" {
+		enc.AddString("id", d.ID)
 	}
-	if f.Local != "" {
-		enc.AddString("local", f.Local)
+	if d.Local != "" {
+		enc.AddString("local", d.Local)
 	}
-	if f.Public != "" {
-		enc.AddString("public", f.Public)
+	if d.Remote != "" {
+		enc.AddString("remote", d.Remote)
 	}
-	if f.Peer != "" {
-		enc.AddString("peer", f.Peer)
+	if d.Public != "" {
+		enc.AddString("public", d.Public)
 	}
-	if f.Msg != "" {
-		enc.AddString("msg", f.Msg)
+	if d.Peer != "" {
+		enc.AddString("peer", d.Peer)
 	}
-	if f.Op != "" {
-		enc.AddString("op", f.Op)
+	if d.Msg != "" {
+		enc.AddString("msg", d.Msg)
+	}
+	if d.Op != "" {
+		enc.AddString("op", d.Op)
 	}
 	return nil
 }
@@ -66,6 +69,7 @@ type QuicClient struct {
 	pingPeerInterval   uint32
 	clientID           string
 	keyLogFile         string
+	remoteAddress      string
 	serverAddress1     string
 	serverAddress2     string
 	networkType        string
@@ -74,8 +78,10 @@ type QuicClient struct {
 
 func (u *QuicClient) connPrepare() (net.PacketConn, error) {
 	if !u.nat {
+		u.remoteAddress = u.serverAddress1
 		return net.ListenUDP(u.networkType, &net.UDPAddr{IP: net.IPv4zero, Port: u.port})
 	}
+
 	serverAddr1, err := net.ResolveUDPAddr(u.networkType, u.serverAddress1)
 	if err != nil {
 		return nil, fmt.Errorf("resolve addr %s err: %w", u.serverAddress1, err)
@@ -93,8 +99,9 @@ func (u *QuicClient) connPrepare() (net.PacketConn, error) {
 
 	u.clientID = fmt.Sprintf("%s:%v", u.clientID, u.port)
 
-	logger.Info("udp client start",
+	logger.Info("prepare conn",
 		zap.String("id", u.clientID),
+		zap.String("network", u.networkType),
 		zap.String("laddr", conn.LocalAddr().String()),
 		zap.String("server1", u.serverAddress1),
 		zap.String("server2", u.serverAddress2),
@@ -285,25 +292,24 @@ pingPeerLoop:
 		case <-ticker.C:
 			continue
 		}
-
 	}
-
+	u.remoteAddress = peerAddress
 	return conn, nil
 }
 
-func (q *QuicClient) get(ctx context.Context, raddr string, dialTimeout uint, filename string) error {
-	q.roundTripper.Dial = func(ctx context.Context, addr string, tlsConf *tls.Config, config *quic.Config) (quic.EarlyConnection, error) {
-		udpAddr, err := net.ResolveUDPAddr("udp", addr)
-		if err != nil {
-			return nil, err
-		}
-
+func (q *QuicClient) get(ctx context.Context, urlPath string, dialTimeout uint, filename string) error {
+	q.roundTripper.Dial = func(ctx context.Context, serverAddr string, tlsConf *tls.Config, config *quic.Config) (quic.EarlyConnection, error) {
 		udpConn, err := q.connPrepare()
 		if err != nil {
 			return nil, err
 		}
 
-		qc, err := quic.DialContext(ctx, udpConn, udpAddr, addr, tlsConf, config)
+		udpRemoteAddr, err := net.ResolveUDPAddr("udp", q.remoteAddress)
+		if err != nil {
+			return nil, err
+		}
+
+		qc, err := quic.DialContext(ctx, udpConn, udpRemoteAddr, q.remoteAddress, tlsConf, config)
 		if err != nil {
 			return nil, err
 		}
@@ -314,50 +320,52 @@ func (q *QuicClient) get(ctx context.Context, raddr string, dialTimeout uint, fi
 		}
 
 		logger.Info("conn ready",
-			zap.String("remote", addr),
+			zap.String("server", serverAddr),
+			zap.Bool("nat", q.nat),
+			zap.String("remote", q.remoteAddress),
 			zap.String("local", ec.LocalAddr().String()),
 		)
 
 		return ec, nil
 	}
-
 	defer q.roundTripper.Close()
 
-	if q.debug {
-		log.Printf("GET %s", raddr)
-
+	if !strings.HasPrefix(urlPath, "/") {
+		urlPath = "/" + urlPath
 	}
-
-	logger.Debug("get",
-		zap.String("addr", raddr),
-	)
+	addr := "https://" + q.serverAddress1 + urlPath
 
 	if len(q.keyLogFile) > 0 {
 		f, err := os.Create(q.keyLogFile)
-		if err == nil {
+		if err != nil {
+			logger.Warn("create key log file error",
+				zap.String("filename", q.keyLogFile),
+				zap.Error(err),
+			)
+		} else {
 			defer f.Close()
 			q.roundTripper.TLSClientConfig.KeyLogWriter = f
-		} else {
-			log.Println("key log error ", err)
 		}
-
 	}
+	logger.Debug("get",
+		zap.String("addr", addr),
+		zap.String("path", urlPath),
+		zap.String("key file", q.keyLogFile),
+	)
 
 	hclient := http.Client{
 		Transport: q.roundTripper,
 	}
-	rsp, err := hclient.Get(raddr)
+	rsp, err := hclient.Get(addr)
 	if err != nil {
 		return fmt.Errorf("get error %w", err)
 	}
 
-	if q.debug {
-		log.Printf("%s response: %#v", raddr, rsp)
-	}
-
 	logger.Debug("get response",
-		zap.String("addr", raddr),
-		zap.String("status", rsp.Status),
+		zap.String("addr", addr),
+		zap.String("host", rsp.Request.Host),
+		zap.String("url", rsp.Request.URL.String()),
+		zap.Int("status", rsp.StatusCode),
 		zap.Int64("content-length", rsp.ContentLength),
 	)
 

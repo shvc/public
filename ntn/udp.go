@@ -7,7 +7,6 @@ import (
 	mrand "math/rand"
 	"net"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/libp2p/go-reuseport"
@@ -26,12 +25,6 @@ type data struct {
 	Peer   string `json:"peer,omitempty"`
 	Msg    string `json:"msg,omitempty"`
 	Op     string `json:"op,omitempty"`
-}
-
-type store struct {
-	expire int64
-	status int
-	data
 }
 
 func (f *data) MarshalLogObject(enc zapcore.ObjectEncoder) error {
@@ -56,302 +49,68 @@ func (f *data) MarshalLogObject(enc zapcore.ObjectEncoder) error {
 	return nil
 }
 
-type UDPServer struct {
-	networkType string
-	sync.RWMutex
-	v map[string]store
-}
-
-func (s *UDPServer) set(v data, status int) {
-	s.Lock()
-	defer s.Unlock()
-	s.v[v.ID] = store{expire: time.Now().Unix() + 10, data: v, status: status}
-}
-
-func (s *UDPServer) delete(k string) {
-	s.Lock()
-	defer s.Unlock()
-	delete(s.v, k)
-}
-
-func (s *UDPServer) get(k string) (d data, ok bool) {
-	s.RLock()
-	defer s.RUnlock()
-	if v, got := s.v[k]; got {
-		d = v.data
-		ok = got
-	}
-	return
-}
-
-func (s *UDPServer) initStore(ctx context.Context) {
-	if s.v == nil {
-		s.v = map[string]store{}
+func NewUdpPeer(id, server1, server2 string) *UDPPeer {
+	p := &UDPPeer{
+		networkType:    "udp4",
+		peerID:         id,
+		serverAddress1: server1,
+		serverAddress2: server2,
 	}
 
-	go func() {
-		tick := time.Tick(2 * time.Second)
-		for {
-			now := time.Now().Unix()
-			select {
-			case <-tick:
-				for k, v := range s.v {
-					if v.expire < now {
-						logger.Debug("record expired",
-							zap.String("key", k),
-						)
-						delete(s.v, k)
-					}
-				}
-			case <-ctx.Done():
-				return
-			}
-
-		}
-	}()
+	return p
 }
 
-func (s *UDPServer) selectOnePeer(exclude string, status int) (string, string) {
-	s.RLock()
-	defer s.RUnlock()
-
-	for k, v := range s.v {
-		if k == exclude {
-			continue
-		}
-		if v.status != status {
-			continue
-		}
-
-		return k, v.data.Public
-	}
-
-	return "", ""
+type UDPPeer struct {
+	peerID         string
+	networkType    string
+	serverAddress1 string
+	serverAddress2 string
+	serverAddr1    *net.UDPAddr
+	serverAddr2    *net.UDPAddr
 }
 
-func (s *UDPServer) notify(conn net.PacketConn, ID, addr, peerAddr string) error {
-	pAddr, err := net.ResolveUDPAddr(s.networkType, addr)
+func (u *UDPPeer) prepare() (conn net.PacketConn, e error) {
+	var err error
+	u.serverAddr1, err = net.ResolveUDPAddr(u.networkType, u.serverAddress1)
 	if err != nil {
-		return fmt.Errorf("resolve notify addr %s err: %w", addr, err)
+		return nil, fmt.Errorf("resolve addr %s err: %w", u.serverAddress1, err)
 	}
-	rspData := &data{
-		ID:     ID,
-		Public: addr,
-		Peer:   peerAddr,
-		Op:     "pong3",
-	}
-	rspBuf, _ := json.Marshal(rspData)
-	_, err = conn.WriteTo(rspBuf, pAddr)
-	return err
-}
 
-func (s *UDPServer) startUDPServer(ctx context.Context, lc *net.ListenConfig, addr string) error {
-	conn, err := lc.ListenPacket(ctx, s.networkType, addr)
+	u.serverAddr2, err = net.ResolveUDPAddr(u.networkType, u.serverAddress2)
 	if err != nil {
-		return fmt.Errorf("listen addr %s fail, err: %w", addr, err)
+		return nil, fmt.Errorf("resolve addr %s err: %w", u.serverAddress2, err)
 	}
-	defer conn.Close()
 
-	logger.Info("udp server started",
-		zap.String("addr", conn.LocalAddr().String()),
-	)
-
-	buf := make([]byte, 2048)
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		default:
-			n, raddr, err := conn.ReadFrom(buf)
-			if err != nil {
-				logger.Warn("ReadFrom error",
-					zap.String("laddr", conn.LocalAddr().String()),
-					zap.Error(err),
-				)
-				continue
-			}
-
-			rcvData := data{}
-			if err := json.Unmarshal(buf[:n], &rcvData); err != nil {
-				logger.Warn("readFrom success but decode error",
-					zap.Int("len", n),
-					zap.String("laddr", conn.LocalAddr().String()),
-					zap.String("raddr", raddr.String()),
-					zap.ByteString("content", buf[:n]),
-					zap.Error(err),
-				)
-				continue
-			}
-
-			if rcvData.ID == "" {
-				logger.Warn("readFrom success but no ID",
-					zap.Int("len", n),
-					zap.String("laddr", conn.LocalAddr().String()),
-					zap.String("raddr", raddr.String()),
-					zap.ByteString("content", buf[:n]),
-				)
-				continue
-			}
-			// set public addr
-			rcvData.Public = raddr.String()
-			logger.Info("recv success",
-				zap.Int("len", n),
-				zap.String("laddr", conn.LocalAddr().String()),
-				zap.String("raddr", raddr.String()),
-				zap.Object("data", &rcvData),
-			)
-
-			rspData := &data{
-				ID:     rcvData.ID,
-				Public: rcvData.Public,
-			}
-
-			switch rcvData.Op {
-			case "ping1":
-				s.set(rcvData, 1)
-				rspData.Op = "pong1"
-			case "ping2":
-				s.set(rcvData, 2)
-				rspData.Op = "pong2"
-			case "ping3":
-				s.set(rcvData, 3)
-				rspData.Op = "pong3"
-				rspData.Msg, rspData.Peer = s.selectOnePeer(rcvData.ID, 3)
-				if rspData.Msg == "" || rspData.Peer == "" {
-					continue
-				}
-				if err := s.notify(conn, rspData.Msg, rspData.Peer, rcvData.Public); err != nil {
-					logger.Warn("notify peer error",
-						zap.String("laddr", conn.LocalAddr().String()),
-						zap.String("raddr", rspData.Peer),
-						zap.String("peer address", rcvData.Public),
-						zap.String("peer id", rspData.Msg),
-						zap.Error(err),
-					)
-					continue
-				}
-				s.delete(rcvData.ID)
-				s.delete(rspData.Msg)
-				logger.Info("notify peer success",
-					zap.String("laddr", conn.LocalAddr().String()),
-					zap.String("raddr", rspData.Peer),
-					zap.String("peer address", rcvData.Public),
-					zap.String("peer id", rspData.Msg),
-				)
-			default:
-				logger.Warn("unknown op",
-					zap.Int("len", n),
-					zap.String("laddr", conn.LocalAddr().String()),
-					zap.String("raddr", raddr.String()),
-					zap.String("op", rcvData.Op),
-					zap.ByteString("content", buf[:n]),
-				)
-				continue
-			}
-			rspBuf, _ := json.Marshal(rspData)
-			_, err = conn.WriteTo(rspBuf, raddr)
-			if err != nil {
-				logger.Warn("send response error",
-					zap.String("laddr", conn.LocalAddr().String()),
-					zap.String("raddr", raddr.String()),
-					zap.Object("data", rspData),
-					zap.Error(err),
-				)
-				continue
-			}
-
-			logger.Info("response success",
-				zap.String("laddr", conn.LocalAddr().String()),
-				zap.String("raddr", raddr.String()),
-				zap.Object("data", rspData),
-			)
-		}
-	}
-}
-
-func (s *UDPServer) UDPServer(ctx context.Context, port uint) error {
-	s.networkType = "udp4"
-	addrs, err := net.InterfaceAddrs()
+	conn, err = reuseport.ListenPacket("udp4", fmt.Sprintf(":%v", port))
 	if err != nil {
-		return fmt.Errorf("get interfaces addrs err:%w", err)
-	}
-	s.initStore(ctx)
-	lc := &net.ListenConfig{
-		Control: reuseport.Control,
-	}
-	wg := sync.WaitGroup{}
-	for _, address := range addrs { // Start UDP server on all address
-		if ipnet, ok := address.(*net.IPNet); ok {
-			if ipnet.IP.To4() != nil {
-				wg.Add(1)
-				go func(ip string) {
-					addr := fmt.Sprintf("%s:%v", ip, port)
-					if err := s.startUDPServer(ctx, lc, addr); err != nil {
-						logger.Warn("start udp server error",
-							zap.String("laddr", addr),
-							zap.Error(err),
-						)
-					}
-					wg.Done()
-				}(ipnet.IP.String())
-
-			}
-		}
-	}
-	wg.Wait()
-	return nil
-}
-
-type UDPClient struct {
-	clientID    string
-	networkType string
-	punched     atomic.Bool
-	gotPeer     atomic.Bool
-}
-
-func (u *UDPClient) UDPClient(ctx context.Context, port uint, serverAddress1, serverAddress2 string, dialTimeout, pingServerInterval, pingPeerInterval, helloInterval uint32) (e error) {
-	u.networkType = "udp4"
-	serverAddr1, err := net.ResolveUDPAddr(u.networkType, serverAddress1)
-	if err != nil {
-		return fmt.Errorf("resolve addr %s err: %w", serverAddress1, err)
+		return nil, fmt.Errorf("listen addr %s err: %w", fmt.Sprintf(":%v", port), err)
 	}
 
-	serverAddr2, err := net.ResolveUDPAddr(u.networkType, serverAddress2)
-	if err != nil {
-		return fmt.Errorf("resolve addr %s err: %w", serverAddress2, err)
-	}
+	u.peerID = fmt.Sprintf("%s:%d", u.peerID, port)
 
-	conn, err := reuseport.ListenPacket("udp4", fmt.Sprintf(":%v", port))
-	if err != nil {
-		return fmt.Errorf("listen addr %s err: %w", fmt.Sprintf(":%v", port), err)
-	}
-	defer conn.Close()
-
-	u.clientID = fmt.Sprintf("%s:%d", u.clientID, port)
-
-	logger.Info("udp client start",
-		zap.String("id", u.clientID),
+	logger.Info("udp peer start",
+		zap.String("id", u.peerID),
 		zap.String("laddr", conn.LocalAddr().String()),
-		zap.String("server1", serverAddress1),
-		zap.String("server2", serverAddress2),
+		zap.String("server1", u.serverAddress1),
+		zap.String("server2", u.serverAddress2),
 		zap.Uint32("dial-timeout", dialTimeout),
 	)
 
 	reqData := &data{
-		ID: u.clientID,
+		ID: u.peerID,
 	}
 	buf := make([]byte, 2048)
 
 	reqData.Op = "ping1"
 	reqBuf, _ := json.Marshal(reqData)
-	_, err = conn.WriteTo(reqBuf, serverAddr1)
+	_, err = conn.WriteTo(reqBuf, u.serverAddr1)
 	if err != nil {
-		e = fmt.Errorf("ping1 WriteTo server %s err: %w", serverAddr1.String(), err)
+		e = fmt.Errorf("ping1 WriteTo server %s err: %w", u.serverAddr1.String(), err)
 		return
 	}
 	n, sraddr1, err := conn.ReadFrom(buf)
 	if err != nil {
-		e = fmt.Errorf("ping1 ReadFrom server %s err: %w", serverAddr1.String(), err)
+		e = fmt.Errorf("ping1 ReadFrom server %s err: %w", u.serverAddr1.String(), err)
 		return
 	}
 
@@ -373,15 +132,15 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, serverAddress1, se
 
 	reqData.Op = "ping2"
 	reqBuf2, _ := json.Marshal(reqData)
-	_, err = conn.WriteTo(reqBuf2, serverAddr2)
+	_, err = conn.WriteTo(reqBuf2, u.serverAddr2)
 	if err != nil {
-		e = fmt.Errorf("WriteTo server %s err: %w", serverAddr2.String(), err)
+		e = fmt.Errorf("WriteTo server %s err: %w", u.serverAddr2.String(), err)
 		return
 	}
 
 	n, sraddr2, err := conn.ReadFrom(buf)
 	if err != nil {
-		e = fmt.Errorf("ping2 ReadFrom server %s err: %w", serverAddr1.String(), err)
+		e = fmt.Errorf("ping2 ReadFrom server %s err: %w", u.serverAddr1.String(), err)
 		return
 	}
 
@@ -396,11 +155,7 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, serverAddress1, se
 	}
 
 	if rcvData1.Public != rcvData2.Public {
-		logger.Warn("not a cone nat",
-			zap.String("public addr1", rcvData1.Public),
-			zap.String("public addr2", rcvData2.Public),
-			zap.Object("data", rcvData2),
-		)
+		e = fmt.Errorf("not a cone nat %s != %s", rcvData1.Public, rcvData2.Public)
 		return
 	}
 
@@ -409,12 +164,189 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, serverAddress1, se
 		zap.String("public", rcvData2.Public),
 		zap.Object("response", rcvData2),
 	)
-	recvPeerMessage := make(chan string)
-	punchedMessage := make(chan bool)
+
+	return
+}
+
+func (u *UDPPeer) UDPPeerServer(ctx context.Context, port uint, dialTimeout, reportInterval, pingPeerInterval, pingPeerNum uint32) (e error) {
+	conn, err := u.prepare()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	reqData := &data{
+		ID: u.peerID,
+	}
+	buf := make([]byte, 2048)
+
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		for {
+			n, raddr, err := conn.ReadFrom(buf)
+			if err != nil {
+				logger.Warn("ReadFrom error",
+					zap.String("raddr", raddr.String()),
+					zap.Error(err),
+				)
+				break
+			}
+			rcvData := data{}
+			if err := json.Unmarshal(buf[:n], &rcvData); err != nil {
+				logger.Warn("Unmarshal response error",
+					zap.String("raddr", raddr.String()),
+					zap.Error(err),
+				)
+				continue
+			}
+
+			switch rcvData.Op {
+			case "pong3": // response of ping3 from server
+				if rcvData.Peer != "" {
+					go func(peerAddress string) {
+						peerAddr, err := net.ResolveUDPAddr(u.networkType, peerAddress)
+						if err != nil {
+							logger.Warn("resolve peer address faled",
+								zap.String("address", peerAddress),
+								zap.Error(err),
+							)
+							return
+						}
+						reqData := &data{
+							ID: u.peerID,
+						}
+						ticker := time.NewTicker(time.Duration(pingPeerInterval+mrand.Uint32()%pingPeerInterval) * time.Millisecond)
+						defer ticker.Stop()
+						for i := uint32(1); i <= pingPeerNum; i++ {
+							reqData.Op = "sping"
+							reqData.Msg = "sping peer"
+							reqData.Peer = peerAddr.String()
+							reqBuf3, _ := json.Marshal(reqData)
+							_, err := conn.WriteTo(reqBuf3, peerAddr)
+							if err != nil {
+								logger.Warn("sping error",
+									zap.String("paddr", peerAddr.String()),
+									zap.Error(err),
+								)
+							} else {
+								logger.Debug("sping success",
+									zap.String("paddr", peerAddr.String()),
+								)
+							}
+							select {
+							case <-ticker.C:
+								continue
+							}
+						}
+					}(rcvData.Peer)
+				}
+			case "cping": // peer client ping
+				go func(clientAddr net.Addr, rcvd data) {
+					rspData := &data{
+						ID:  rcvd.ID,
+						Op:  rcvd.Op,
+						Msg: rcvd.Msg,
+					}
+					rspBuf, _ := json.Marshal(rspData)
+					_, err := conn.WriteTo(rspBuf, clientAddr)
+					if err != nil {
+						logger.Warn("response cping error",
+							zap.String("paddr", clientAddr.String()),
+							zap.Error(err),
+						)
+						return
+					}
+					logger.Debug("response cping success",
+						zap.String("paddr", clientAddr.String()),
+						zap.String("op", rspData.Op),
+						zap.String("msg", rspData.Msg),
+					)
+				}(raddr, rcvData)
+			default:
+				logger.Warn("recv unknown msg",
+					zap.String("raddr", raddr.String()),
+					zap.Object("data", &rcvData),
+				)
+				continue
+			}
+
+			logger.Info("recv msg",
+				zap.String("raddr", raddr.String()),
+				zap.Object("data", &rcvData),
+			)
+		}
+
+	}()
+
+	for {
+		reqData.Op = "report"
+		reqBuf, _ := json.Marshal(reqData)
+		_, err = conn.WriteTo(reqBuf, u.serverAddr1)
+		if err != nil {
+			e = fmt.Errorf("report to server %s err: %w", u.serverAddr1.String(), err)
+			return
+		}
+		logger.Info("report success",
+			zap.String("raddr", u.serverAddr1.String()),
+			zap.Object("data", reqData),
+		)
+		time.Sleep(time.Duration(reportInterval) * time.Second)
+	}
+
+}
+
+func (u *UDPPeer) PeerClientUDP(ctx context.Context, port uint, dialTimeout, pingServerInterval, pingPeerInterval, pingPeerCount, helloInterval uint32) (e error) {
+	conn, err := u.prepare()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	reqData := &data{
+		ID: u.peerID,
+	}
+	buf := make([]byte, 2048)
+
+	peerAddress := ""
+	for i := 1; i <= 10; i++ {
+		reqData.Op = "request" // request peer address
+		reqBuf, _ := json.Marshal(reqData)
+		_, err = conn.WriteTo(reqBuf, u.serverAddr1)
+		if err != nil {
+			return fmt.Errorf("send request to server %s err: %w", u.serverAddr1.String(), err)
+		}
+
+		n, raddr, err := conn.ReadFrom(buf)
+		if err != nil {
+			return fmt.Errorf("read response from server %s err: %w", u.serverAddr1.String(), err)
+		}
+
+		rcvData := &data{}
+		if err := json.Unmarshal(buf[:n], rcvData); err != nil {
+			return fmt.Errorf("decode response from server %s err: %w", raddr.String(), err)
+		}
+
+		logger.Info("request success",
+			zap.String("server", u.serverAddr1.String()),
+			zap.String("raddr", raddr.String()),
+			zap.Int("seq", i),
+			zap.Object("data", reqData),
+		)
+
+		if rcvData.Op == "pong3" && rcvData.Peer != "" {
+			peerAddress = rcvData.Peer
+			break
+		}
+
+		time.Sleep(time.Duration(pingServerInterval) * time.Second)
+	}
+
+	if peerAddress == "" {
+		return fmt.Errorf("no peer address received")
+	}
+
+	punchedMessage := make(chan bool)
+	go func() {
 		for {
 			n, raddr, err := conn.ReadFrom(buf)
 			if err != nil {
@@ -434,18 +366,13 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, serverAddress1, se
 			}
 
 			switch rcvData.Op {
-			case "pong3": // response of ping3 from server
-				if rcvData.Peer != "" && !u.gotPeer.Load() {
-					u.gotPeer.Store(true)
-					recvPeerMessage <- rcvData.Peer
+			case "sping": // peer server ping
+				punchedMessage <- true
+			case "cping": // peer client ping
+				if rcvData.Msg == "byebye" {
+					fmt.Println(rcvData.Op, rcvData.Msg)
+					return
 				}
-			case "pping": // peer ping from peer
-				if !u.punched.Load() {
-					u.punched.Store(true)
-					punchedMessage <- true
-				}
-			case "hello": // from peer
-				// p2p comunication
 			default:
 				logger.Warn("recv unknown msg",
 					zap.String("raddr", raddr.String()),
@@ -459,148 +386,52 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, serverAddress1, se
 				zap.Object("data", rcvData),
 			)
 		}
-
 	}()
-
-	ticker := time.NewTicker(time.Duration(pingServerInterval) * time.Second)
-	peerAddress := ""
-ping3Loop:
-	for {
-		reqData.Op = "ping3"
-		reqBuf, _ := json.Marshal(reqData)
-		_, err = conn.WriteTo(reqBuf, serverAddr1)
-		if err != nil {
-			e = fmt.Errorf("ping1 WriteTo server %s err: %w", serverAddr1.String(), err)
-			return
-		}
-		logger.Info("ping3 success",
-			zap.String("raddr", serverAddr1.String()),
-			zap.Object("data", reqData),
-		)
-		select {
-		case peerAddress = <-recvPeerMessage:
-			logger.Info("got peer address",
-				zap.String("raddr", serverAddr1.String()),
-				zap.String("peer", peerAddress),
-			)
-			ticker.Stop()
-			break ping3Loop
-		case <-ticker.C:
-			continue
-		}
-
-	}
 
 	peerAddr, err := net.ResolveUDPAddr(u.networkType, peerAddress)
 	if err != nil {
 		return fmt.Errorf("resolve peer %s err: %w", peerAddress, err)
 	}
-	ticker = time.NewTicker(time.Duration(pingPeerInterval+mrand.Uint32()%pingPeerInterval) * time.Millisecond)
-pingPeerLoop:
-	for {
-		reqData.Op = "pping"
-		reqData.Msg = "ping peer"
-		reqData.Peer = peerAddr.String()
+	ticker := time.NewTicker(time.Duration(pingPeerInterval+mrand.Uint32()%pingPeerInterval) * time.Millisecond)
+	punched := false
+	reqData.Op = "cping"
+	reqData.Msg = "cping nat"
+	reqData.Peer = peerAddr.String()
+	for i := uint32(1); i <= pingPeerCount; i++ {
+		if punched {
+			if i == pingPeerCount {
+				reqData.Msg = "byebye"
+			} else {
+				reqData.Msg = u.peerID + " say hello@" + time.Now().Format(time.RFC3339)
+			}
+		}
 		reqBuf3, _ := json.Marshal(reqData)
 		_, err := conn.WriteTo(reqBuf3, peerAddr)
 		if err != nil {
-			logger.Warn("ping peer error",
+			logger.Warn("send msg to peer error",
 				zap.String("paddr", peerAddr.String()),
+				zap.String("op", reqData.Op),
 				zap.Error(err),
 			)
 		} else {
-			logger.Debug("ping peer success",
+			logger.Debug("send msg to peer success",
+				zap.String("op", reqData.Op),
+				zap.String("msg", reqData.Msg),
 				zap.String("paddr", peerAddr.String()),
 			)
 		}
 		select {
 		case <-punchedMessage:
-			logger.Info("traversal success",
-				zap.String("raddr", serverAddr1.String()),
+			logger.Info("nat traversal success",
+				zap.String("raddr", u.serverAddr1.String()),
 				zap.String("peer", peerAddress),
 			)
-			ticker.Stop()
-			break pingPeerLoop
+			ticker.Reset(time.Duration(helloInterval) * time.Second)
+			punched = true
 		case <-ticker.C:
 			continue
 		}
-
 	}
-
-	for {
-		reqData.Peer = peerAddr.String()
-		reqData.Op = "hello"
-		reqData.Msg = u.clientID + " say hello@" + time.Now().Format(time.RFC3339)
-		reqBuf3, _ := json.Marshal(reqData)
-		_, err := conn.WriteTo(reqBuf3, peerAddr)
-		if err != nil {
-			logger.Warn("write peer error",
-				zap.String("raddr", peerAddr.String()),
-				zap.Error(err),
-			)
-			break
-		}
-		time.Sleep(time.Duration(helloInterval) * time.Second)
-	}
-
-	wg.Wait()
-	return
-}
-
-func UDPSend(ctx context.Context, laddr, raddr, data string, dialTimeout uint) (e error) {
-	networkType := "udp4"
-	var nla *net.UDPAddr
-	var err error
-	if laddr != "" {
-		nla, err = net.ResolveUDPAddr(networkType, laddr)
-		if err != nil {
-			return fmt.Errorf("resolve local addr err:%w", err)
-		}
-	}
-
-	d := net.Dialer{
-		Control:   reuseport.Control,
-		LocalAddr: nla,
-		Timeout:   time.Duration(dialTimeout) * time.Second,
-	}
-
-	conn, err := d.DialContext(ctx, networkType, raddr)
-	if err != nil {
-		return fmt.Errorf("dial %s failed, err: %w", raddr, err)
-	}
-	defer conn.Close()
-
-	logger.Debug("dial success",
-		zap.String("raddr", conn.RemoteAddr().String()),
-		zap.String("laddr", conn.LocalAddr().String()),
-	)
-
-	n, err := conn.Write([]byte(data))
-	if err != nil {
-		e = fmt.Errorf("send to %s err: %w", conn.RemoteAddr(), err)
-		return
-	}
-
-	logger.Info("send success",
-		zap.String("raddr", conn.RemoteAddr().String()),
-		zap.String("data", data),
-		zap.Int("len", n),
-	)
-
-	buff := make([]byte, 1440)
-
-	n, err = conn.Read(buff)
-	if err != nil {
-		e = fmt.Errorf("read err: %w", err)
-		return
-	}
-
-	logger.Info("recv success",
-		zap.Int("len", n),
-		zap.String("laddr", conn.LocalAddr().String()),
-		zap.String("raddr", conn.RemoteAddr().String()),
-		zap.ByteString("content", buff[:n]),
-	)
 
 	return
 }

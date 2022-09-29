@@ -342,7 +342,8 @@ func (u *UDPPeer) PeerClientUDP(ctx context.Context, port uint, dialTimeout, pin
 	}
 
 	if peerAddress == "" {
-		return fmt.Errorf("no peer address received")
+		fmt.Println("no peer address received")
+		return
 	}
 
 	punchedMessage := make(chan bool)

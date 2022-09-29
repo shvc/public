@@ -270,13 +270,6 @@ func (s *PublicServer) startUDPServer(ctx context.Context, lc *net.ListenConfig,
 			}
 			// set public addr
 			rcvData.Public = raddr.String()
-			logger.Info("recv success",
-				zap.Int("len", n),
-				zap.String("laddr", conn.LocalAddr().String()),
-				zap.String("raddr", raddr.String()),
-				zap.Object("data", &rcvData),
-			)
-
 			rspData := &data{
 				ID:     rcvData.ID,
 				Public: rcvData.Public,
@@ -293,7 +286,7 @@ func (s *PublicServer) startUDPServer(ctx context.Context, lc *net.ListenConfig,
 				s.set(rcvData, 3)
 				logger.Info("report status",
 					zap.String("raddr", raddr.String()),
-					zap.Object("data", &rcvData),
+					zap.Object("request", &rcvData),
 				)
 				continue
 			case "request":
@@ -316,13 +309,7 @@ func (s *PublicServer) startUDPServer(ctx context.Context, lc *net.ListenConfig,
 							zap.String("peer id", rspData.Msg),
 						)
 					}
-				} else {
-					logger.Warn("peer not found",
-						zap.String("raddr", raddr.String()),
-						zap.Object("data", &rcvData),
-					)
 				}
-
 			default:
 				logger.Warn("unknown op",
 					zap.Int("len", n),
@@ -339,16 +326,18 @@ func (s *PublicServer) startUDPServer(ctx context.Context, lc *net.ListenConfig,
 				logger.Warn("send response error",
 					zap.String("laddr", conn.LocalAddr().String()),
 					zap.String("raddr", raddr.String()),
-					zap.Object("data", rspData),
+					zap.Object("request", &rcvData),
+					zap.Object("response", rspData),
 					zap.Error(err),
 				)
 				continue
 			}
 
-			logger.Info("response success",
+			logger.Info("recv/response success",
 				zap.String("laddr", conn.LocalAddr().String()),
 				zap.String("raddr", raddr.String()),
-				zap.Object("data", rspData),
+				zap.Object("request", &rcvData),
+				zap.Object("response", rspData),
 			)
 		}
 	}

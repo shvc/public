@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	mrand "math/rand"
 	"net"
 	"time"
 
@@ -22,13 +23,12 @@ func (c *TCPClient) TCPClient(ctx context.Context, port uint, serverAddress1, se
 	}
 	c.clientID = fmt.Sprintf("%s:%d", c.clientID, port)
 
-	var nla *net.TCPAddr
-	var err error
-	if port > 0 {
-		nla, err = net.ResolveTCPAddr(c.networkType, fmt.Sprintf(":%v", port))
-		if err != nil {
-			return fmt.Errorf("resolve local addr err:%w", err)
-		}
+	if port < 8 {
+		port = uint(mrand.Uint32()%20000) + 40000
+	}
+	nla, err := net.ResolveTCPAddr(c.networkType, fmt.Sprintf(":%v", port))
+	if err != nil {
+		return fmt.Errorf("resolve local addr err:%w", err)
 	}
 
 	dialer := net.Dialer{
@@ -80,6 +80,7 @@ func (c *TCPClient) TCPClient(ctx context.Context, port uint, serverAddress1, se
 	)
 
 	if serverAddress2 != "" {
+		time.Sleep(2 * time.Second)
 		conn2, err := dialer.DialContext(ctx, c.networkType, serverAddress2)
 		if err != nil {
 			return fmt.Errorf("dial %s failed, err: %w", serverAddress2, err)

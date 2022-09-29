@@ -17,8 +17,8 @@ var (
 	logger             *zap.Logger
 	debug              bool
 	port               uint   = 20017
-	serverAddr1               = "47.100.31.117:20019"
-	serverAddr2               = "47.103.138.1:20019"
+	serverAddr1               = "47.100.31.117:20017"
+	serverAddr2               = "47.103.138.1:20017"
 	dialTimeout        uint32 = 5
 	pingServerInterval uint32 = 10
 	pingPeerInterval   uint32 = 100
@@ -59,7 +59,7 @@ ntn server
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 			us := &PublicServer{}
-			return us.UDPServer(ctx, port)
+			return us.Start(ctx, port)
 		},
 	}
 	rootCmd.AddCommand(serverCmd)

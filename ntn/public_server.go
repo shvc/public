@@ -25,14 +25,14 @@ type PublicServer struct {
 }
 
 func (s *PublicServer) Start(ctx context.Context, port uint) error {
-	err := s.TCPServer(port)
-	if err != nil {
-		return fmt.Errorf("start tcp server error %w", err)
-	}
+	go func() {
+		if err := s.TCPServer(port); err != nil {
+			panic(fmt.Sprintf("start tcp server error %s", err))
+		}
+	}()
 
-	err = s.UDPServer(ctx, port)
-	if err != nil {
-		return fmt.Errorf("start udp server error %w", err)
+	if err := s.UDPServer(ctx, port); err != nil {
+		panic(fmt.Sprintf("start udp server error %s", err))
 	}
 
 	return nil
@@ -289,31 +289,40 @@ func (s *PublicServer) startUDPServer(ctx context.Context, lc *net.ListenConfig,
 			case "ping2":
 				s.set(rcvData, 2)
 				rspData.Op = "pong2"
-			case "ping3":
+			case "report":
 				s.set(rcvData, 3)
+				logger.Info("report status",
+					zap.String("raddr", raddr.String()),
+					zap.Object("data", &rcvData),
+				)
+				continue
+			case "request":
 				rspData.Op = "pong3"
 				rspData.Msg, rspData.Peer = s.selectOnePeer(rcvData.ID, 3)
-				if rspData.Msg == "" || rspData.Peer == "" {
-					continue
-				}
-				if err := s.notify(conn, rspData.Msg, rspData.Peer, rcvData.Public); err != nil {
-					logger.Warn("notify peer error",
-						zap.String("laddr", conn.LocalAddr().String()),
-						zap.String("raddr", rspData.Peer),
-						zap.String("peer address", rcvData.Public),
-						zap.String("peer id", rspData.Msg),
-						zap.Error(err),
+				if rspData.Msg != "" || rspData.Peer != "" {
+					if err := s.notify(conn, rspData.Msg, rspData.Peer, rcvData.Public); err != nil {
+						logger.Warn("notify peer error",
+							zap.String("laddr", conn.LocalAddr().String()),
+							zap.String("raddr", rspData.Peer),
+							zap.String("peer address", rcvData.Public),
+							zap.String("peer id", rspData.Msg),
+							zap.Error(err),
+						)
+					} else {
+						logger.Info("notify peer success",
+							zap.String("laddr", conn.LocalAddr().String()),
+							zap.String("raddr", rspData.Peer),
+							zap.String("peer address", rcvData.Public),
+							zap.String("peer id", rspData.Msg),
+						)
+					}
+				} else {
+					logger.Warn("peer not found",
+						zap.String("raddr", raddr.String()),
+						zap.Object("data", &rcvData),
 					)
-					continue
 				}
-				s.delete(rcvData.ID)
-				s.delete(rspData.Msg)
-				logger.Info("notify peer success",
-					zap.String("laddr", conn.LocalAddr().String()),
-					zap.String("raddr", rspData.Peer),
-					zap.String("peer address", rcvData.Public),
-					zap.String("peer id", rspData.Msg),
-				)
+
 			default:
 				logger.Warn("unknown op",
 					zap.Int("len", n),

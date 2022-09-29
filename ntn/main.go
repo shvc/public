@@ -92,7 +92,6 @@ ntn tc
 * start udp peer server
 ntn us
 `,
-		Args: cobra.RangeArgs(2, 3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 			u := NewUdpPeer(clientID, serverAddr1, serverAddr2)

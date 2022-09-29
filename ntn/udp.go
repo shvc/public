@@ -127,7 +127,7 @@ func (u *UDPPeer) prepare() (conn net.PacketConn, e error) {
 	logger.Info("ping1 success",
 		zap.String("raddr", sraddr1.String()),
 		zap.String("public", rcvData1.Public),
-		zap.Object("response", rcvData1),
+		zap.Object("resp", rcvData1),
 	)
 
 	reqData.Op = "ping2"
@@ -162,7 +162,7 @@ func (u *UDPPeer) prepare() (conn net.PacketConn, e error) {
 	logger.Info("ping2 success",
 		zap.String("raddr", sraddr2.String()),
 		zap.String("public", rcvData2.Public),
-		zap.Object("response", rcvData2),
+		zap.Object("resp", rcvData2),
 	)
 
 	return
@@ -308,7 +308,7 @@ func (u *UDPPeer) PeerClientUDP(ctx context.Context, port uint, dialTimeout, pin
 	buf := make([]byte, 2048)
 
 	peerAddress := ""
-	for i := 1; i <= 10; i++ {
+	for i := 0; i < 10; i++ {
 		reqData.Op = "request" // request peer address
 		reqBuf, _ := json.Marshal(reqData)
 		_, err = conn.WriteTo(reqBuf, u.serverAddr1)
@@ -326,11 +326,11 @@ func (u *UDPPeer) PeerClientUDP(ctx context.Context, port uint, dialTimeout, pin
 			return fmt.Errorf("decode response from server %s err: %w", raddr.String(), err)
 		}
 
-		logger.Info("request success",
+		logger.Info("request",
 			zap.String("server", u.serverAddr1.String()),
 			zap.String("raddr", raddr.String()),
-			zap.Int("seq", i),
-			zap.Object("data", reqData),
+			zap.Object("req", reqData),
+			zap.Object("resp", rcvData),
 		)
 
 		if rcvData.Op == "pong3" && rcvData.Peer != "" {

@@ -64,17 +64,17 @@ func (s *PublicServer) TCPServer(port uint) error {
 
 func (s *PublicServer) processTCPConn(conn net.Conn) {
 	defer conn.Close()
-	buf := make([]byte, 1892)
+	buf := make([]byte, 2048)
 	for {
 		n, err := conn.Read(buf)
 		if err != nil {
 			if err == io.EOF {
-				logger.Info("conn closed",
+				logger.Info("tcp conn closed",
 					zap.String("laddr", conn.LocalAddr().String()),
 					zap.String("raddr", conn.RemoteAddr().String()),
 				)
 			} else {
-				logger.Warn("recv error",
+				logger.Warn("tcp recv error",
 					zap.String("laddr", conn.LocalAddr().String()),
 					zap.String("raddr", conn.RemoteAddr().String()),
 					zap.Error(err),
@@ -85,7 +85,7 @@ func (s *PublicServer) processTCPConn(conn net.Conn) {
 
 		rcvData := &data{}
 		if err := json.Unmarshal(buf[:n], rcvData); err != nil {
-			logger.Warn("readFrom success but decode error",
+			logger.Warn("tcp decode json error",
 				zap.Int("len", n),
 				zap.String("laddr", conn.LocalAddr().String()),
 				zap.String("raddr", conn.RemoteAddr().String()),
@@ -96,7 +96,7 @@ func (s *PublicServer) processTCPConn(conn net.Conn) {
 		}
 
 		if rcvData.ID == "" {
-			logger.Warn("readFrom success but no ID",
+			logger.Warn("tcp req data no ID",
 				zap.Int("len", n),
 				zap.String("laddr", conn.LocalAddr().String()),
 				zap.String("raddr", conn.RemoteAddr().String()),
@@ -122,7 +122,7 @@ func (s *PublicServer) processTCPConn(conn net.Conn) {
 		rspBuf, _ := json.Marshal(rspData)
 		n, err = conn.Write(rspBuf)
 		if err != nil {
-			logger.Warn("send error",
+			logger.Warn("tcp send resp error",
 				zap.String("laddr", conn.LocalAddr().String()),
 				zap.String("raddr", conn.RemoteAddr().String()),
 				zap.Error(err),
@@ -130,7 +130,7 @@ func (s *PublicServer) processTCPConn(conn net.Conn) {
 			break
 		}
 
-		logger.Debug("send success",
+		logger.Debug("tcp send resp success",
 			zap.String("laddr", conn.LocalAddr().String()),
 			zap.String("raddr", conn.RemoteAddr().String()),
 			zap.Int("len", n),
@@ -286,7 +286,7 @@ func (s *PublicServer) startUDPServer(ctx context.Context, lc *net.ListenConfig,
 				s.set(rcvData, 3)
 				logger.Info("report status",
 					zap.String("raddr", raddr.String()),
-					zap.Object("request", &rcvData),
+					zap.Object("req", &rcvData),
 				)
 				continue
 			case "request":
@@ -326,8 +326,8 @@ func (s *PublicServer) startUDPServer(ctx context.Context, lc *net.ListenConfig,
 				logger.Warn("send response error",
 					zap.String("laddr", conn.LocalAddr().String()),
 					zap.String("raddr", raddr.String()),
-					zap.Object("request", &rcvData),
-					zap.Object("response", rspData),
+					zap.Object("req", &rcvData),
+					zap.Object("resp", rspData),
 					zap.Error(err),
 				)
 				continue
@@ -336,8 +336,8 @@ func (s *PublicServer) startUDPServer(ctx context.Context, lc *net.ListenConfig,
 			logger.Info("recv/response success",
 				zap.String("laddr", conn.LocalAddr().String()),
 				zap.String("raddr", raddr.String()),
-				zap.Object("request", &rcvData),
-				zap.Object("response", rspData),
+				zap.Object("req", &rcvData),
+				zap.Object("resp", rspData),
 			)
 		}
 	}

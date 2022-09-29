@@ -366,7 +366,7 @@ func (u *UDPClient) UDPClient(ctx context.Context, port uint, raddr1, raddr2 str
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		buf := make([]byte, 1440)
+		buf := make([]byte, 2048)
 		for {
 			n, raddr, err := conn.ReadFrom(buf)
 			if err != nil {
@@ -696,7 +696,7 @@ func UDPSend(ctx context.Context, laddr, raddr, data string, dialTimeout uint) (
 		zap.Int("len", n),
 	)
 
-	buff := make([]byte, 1440)
+	buff := make([]byte, 2048)
 
 	n, err = conn.Read(buff)
 	if err != nil {

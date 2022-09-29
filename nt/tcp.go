@@ -39,7 +39,7 @@ func TCPServer(port uint) error {
 
 func processTCPConn(conn net.Conn) {
 	defer conn.Close()
-	buf := make([]byte, 1892)
+	buf := make([]byte, 2048)
 	for {
 		n, err := conn.Read(buf)
 		if err != nil {
@@ -156,7 +156,7 @@ func TCPClient(ctx context.Context, port uint, raddr1, raddr2 string, dialTimeou
 		zap.Int("len", n),
 	)
 
-	buf := make([]byte, 1440)
+	buf := make([]byte, 2048)
 	n, err = conn1.Read(buf)
 	if err != nil {
 		e = fmt.Errorf("read server %s err: %w", conn1.RemoteAddr().String(), err)

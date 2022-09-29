@@ -61,7 +61,7 @@ func (c *TCPClient) TCPClient(ctx context.Context, port uint, serverAddress1, se
 		zap.Int("len", n),
 	)
 
-	buf := make([]byte, 1440)
+	buf := make([]byte, 2048)
 	n, err = conn1.Read(buf)
 	if err != nil {
 		e = fmt.Errorf("read server %s err: %w", conn1.RemoteAddr().String(), err)

@@ -136,7 +136,7 @@ func (u *QuicClient) connPrepare() (net.PacketConn, error) {
 	logger.Info("ping1 success",
 		zap.String("raddr", sraddr1.String()),
 		zap.String("public", rcvData1.Public),
-		zap.Object("response", rcvData1),
+		zap.Object("resp", rcvData1),
 	)
 
 	reqData.Op = "ping2"
@@ -171,7 +171,7 @@ func (u *QuicClient) connPrepare() (net.PacketConn, error) {
 	logger.Info("ping2 success",
 		zap.String("raddr", sraddr2.String()),
 		zap.String("public", rcvData2.Public),
-		zap.Object("response", rcvData2),
+		zap.Object("resp", rcvData2),
 	)
 
 	recvPeerMessage := make(chan string)

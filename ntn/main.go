@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"time"
 
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
@@ -129,7 +130,10 @@ ntn uc
 func initLogger(debug bool) *zap.AtomicLevel {
 	zcfg := zap.NewProductionConfig()
 
-	zcfg.EncoderConfig.EncodeTime = zapcore.RFC3339TimeEncoder
+	// zcfg.EncoderConfig.EncodeTime = zapcore.RFC3339TimeEncoder
+	zcfg.EncoderConfig.EncodeTime = zapcore.TimeEncoder(func(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
+		enc.AppendString(t.UTC().Format("2006-01-02T15:04:05.000Z"))
+	})
 
 	var err error
 	logger, err = zcfg.Build()

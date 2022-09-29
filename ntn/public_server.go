@@ -325,8 +325,6 @@ func (s *PublicServer) startUDPServer(ctx context.Context, lc *net.ListenConfig,
 			_, err = conn.WriteTo(rspBuf, raddr)
 			if err != nil {
 				logger.Warn("send response error",
-					zap.String("laddr", conn.LocalAddr().String()),
-					zap.String("raddr", raddr.String()),
 					zap.Object("req", &rcvData),
 					zap.Object("resp", rspData),
 					zap.Error(err),
@@ -334,9 +332,7 @@ func (s *PublicServer) startUDPServer(ctx context.Context, lc *net.ListenConfig,
 				continue
 			}
 
-			logger.Info("recv/response success",
-				zap.String("laddr", conn.LocalAddr().String()),
-				zap.String("raddr", raddr.String()),
+			logger.Info("response success",
 				zap.Object("req", &rcvData),
 				zap.Object("resp", rspData),
 			)

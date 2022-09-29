@@ -3,6 +3,7 @@ module ntn
 go 1.19
 
 require (
+	github.com/denisbrodbeck/machineid v1.0.1
 	github.com/libp2p/go-reuseport v0.2.0
 	github.com/spf13/cobra v1.5.0
 	go.uber.org/zap v1.23.0

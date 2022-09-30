@@ -22,8 +22,8 @@ var (
 	debug              bool
 	serverPort         uint   = 20017
 	localPort          uint   = 0
-	serverAddr1               = "47.100.31.117:20017"
-	serverAddr2               = "47.103.138.1:20017"
+	serverAddress1            = "47.100.31.117:20017"
+	serverAddress2            = "47.103.138.1:20017"
 	dialTimeout        uint32 = 5
 	pingServerInterval uint32 = 10
 	pingPeerInterval   uint32 = 100
@@ -53,8 +53,8 @@ func main() {
 	rootCmd.PersistentFlags().UintVarP(&serverPort, "port", "p", serverPort, "serve(listen) port")
 	rootCmd.PersistentFlags().UintVarP(&localPort, "local-port", "P", localPort, "local port")
 	rootCmd.PersistentFlags().Uint32Var(&dialTimeout, "dial-timeout", dialTimeout, "client dial timeout")
-	rootCmd.PersistentFlags().StringVar(&serverAddr1, "s1", serverAddr1, "server address1")
-	rootCmd.PersistentFlags().StringVar(&serverAddr2, "s2", serverAddr2, "server address2")
+	rootCmd.PersistentFlags().StringVar(&serverAddress1, "s1", serverAddress1, "server address1")
+	rootCmd.PersistentFlags().StringVar(&serverAddress2, "s2", serverAddress2, "server address2")
 	rootCmd.Flags().Uint32Var(&pingServerInterval, "ping-server-interval", pingServerInterval, "ping server interval in second")
 	rootCmd.Flags().Uint32Var(&pingPeerInterval, "ping-peer-interval", pingPeerInterval, "ping peer interval in millsecond")
 	rootCmd.Flags().Uint32Var(&pingPeerNum, "ping-peer-num", pingPeerNum, "ping peer total num")
@@ -92,7 +92,7 @@ ntn tc
 			ts := TCPClient{
 				clientID: clientID,
 			}
-			return ts.TCPClient(ctx, localPort, serverAddr1, serverAddr2, dialTimeout)
+			return ts.TCPClient(ctx, localPort, serverAddress1, serverAddress2, dialTimeout)
 		},
 	}
 	rootCmd.AddCommand(tcpClientCmd)
@@ -107,7 +107,7 @@ ntn us
 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
-			u := NewUdpPeer(clientID, serverAddr1, serverAddr2)
+			u := NewUdpPeer(clientID, serverAddress1, serverAddress2)
 			return u.UDPPeerServer(ctx, localPort, dialTimeout, pingServerInterval, pingPeerInterval, pingPeerNum)
 		},
 	}
@@ -124,7 +124,7 @@ ntn uc
 `,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
-			u := NewUdpPeer(clientID, serverAddr1, serverAddr2)
+			u := NewUdpPeer(clientID, serverAddress1, serverAddress2)
 			return u.UDPPeerClient(ctx, localPort, dialTimeout, pingServerInterval, pingPeerInterval, pingPeerNum, helloInterval)
 		},
 	}

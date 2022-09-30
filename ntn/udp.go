@@ -314,7 +314,7 @@ func (u *UDPPeer) UDPPeerClient(ctx context.Context, port uint, dialTimeout, pin
 	}
 
 	punchedMessage := make(chan bool)
-	peerAddressMesage := make(chan string)
+	peerAddressMessage := make(chan string)
 	go func() {
 		punched := false
 		gotpong3 := false
@@ -337,7 +337,7 @@ func (u *UDPPeer) UDPPeerClient(ctx context.Context, port uint, dialTimeout, pin
 			case "pong3":
 				if !gotpong3 && rcvData.Peer != "" {
 					gotpong3 = true
-					peerAddressMesage <- rcvData.Peer
+					peerAddressMessage <- rcvData.Peer
 				}
 				continue
 			case "cping": // peer client ping(peer server's reply)
@@ -380,7 +380,7 @@ requestLoop:
 		)
 
 		select {
-		case peerAddress = <-peerAddressMesage:
+		case peerAddress = <-peerAddressMessage:
 			logger.Info("got peer address",
 				zap.String("raddr", u.serverAddr1.String()),
 				zap.String("peer", peerAddress),

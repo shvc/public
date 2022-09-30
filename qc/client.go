@@ -12,7 +12,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/libp2p/go-reuseport"
@@ -25,7 +24,6 @@ import (
 type data struct {
 	ID     string `json:"id,omitempty"`
 	Local  string `json:"local,omitempty"`
-	Remote string `json:"remote,omitempty"`
 	Public string `json:"public,omitempty"`
 	Peer   string `json:"peer,omitempty"`
 	Msg    string `json:"msg,omitempty"`
@@ -38,9 +36,6 @@ func (d *data) MarshalLogObject(enc zapcore.ObjectEncoder) error {
 	}
 	if d.Local != "" {
 		enc.AddString("local", d.Local)
-	}
-	if d.Remote != "" {
-		enc.AddString("remote", d.Remote)
 	}
 	if d.Public != "" {
 		enc.AddString("public", d.Public)
@@ -61,19 +56,50 @@ type QuicClient struct {
 	secure             bool
 	debug              bool
 	nat                bool
-	punched            atomic.Bool
-	gotPeer            atomic.Bool
 	port               int
-	dialTimeout        uint
+	dialTimeout        uint32
 	pingServerInterval uint32
 	pingPeerInterval   uint32
-	clientID           string
+	pingPeerNum        uint32
+	peerID             string
 	keyLogFile         string
 	remoteAddress      string
 	serverAddress1     string
 	serverAddress2     string
+	serverAddr1        *net.UDPAddr
+	serverAddr2        *net.UDPAddr
 	networkType        string
 	roundTripper       *http3.RoundTripper
+}
+
+func (u *QuicClient) readData(conn net.PacketConn) (dat data, raddr net.Addr, e error) {
+	buf := make([]byte, 1024)
+	n, raddr, err := conn.ReadFrom(buf)
+	if err != nil {
+		e = fmt.Errorf("read err: %w", err)
+		return
+	}
+
+	if err := json.Unmarshal(buf[:n], &dat); err != nil {
+		e = fmt.Errorf("unmarshal from %s err: %w", raddr.String(), err)
+		return
+	}
+
+	return
+}
+
+func (u *QuicClient) writeData(conn net.PacketConn, raddr net.Addr, dat *data) error {
+	reqBuf, err := json.Marshal(dat)
+	if err != nil {
+		return fmt.Errorf("marshal err: %w", err)
+	}
+
+	_, err = conn.WriteTo(reqBuf, raddr)
+	if err != nil {
+		return fmt.Errorf("write err: %w", err)
+	}
+
+	return nil
 }
 
 func (u *QuicClient) connPrepare() (net.PacketConn, error) {
@@ -81,13 +107,13 @@ func (u *QuicClient) connPrepare() (net.PacketConn, error) {
 		u.remoteAddress = u.serverAddress1
 		return net.ListenUDP(u.networkType, &net.UDPAddr{IP: net.IPv4zero, Port: u.port})
 	}
-
-	serverAddr1, err := net.ResolveUDPAddr(u.networkType, u.serverAddress1)
+	var err error
+	u.serverAddr1, err = net.ResolveUDPAddr(u.networkType, u.serverAddress1)
 	if err != nil {
 		return nil, fmt.Errorf("resolve addr %s err: %w", u.serverAddress1, err)
 	}
 
-	serverAddr2, err := net.ResolveUDPAddr(u.networkType, u.serverAddress2)
+	u.serverAddr2, err = net.ResolveUDPAddr(u.networkType, u.serverAddress2)
 	if err != nil {
 		return nil, fmt.Errorf("resolve addr %s err: %w", u.serverAddress2, err)
 	}
@@ -97,38 +123,38 @@ func (u *QuicClient) connPrepare() (net.PacketConn, error) {
 		return nil, fmt.Errorf("listen addr %s err: %w", fmt.Sprintf(":%v", u.port), err)
 	}
 
-	u.clientID = fmt.Sprintf("%s:%v", u.clientID, u.port)
+	if len(u.peerID) > 16 {
+		u.peerID = u.peerID[:15]
+	}
+	ipPort := strings.Split(conn.LocalAddr().String(), ":")
+	if length := len(ipPort); length > 1 {
+		u.peerID = u.peerID + ":" + ipPort[length-1]
+	}
 
 	logger.Info("prepare conn",
-		zap.String("id", u.clientID),
+		zap.String("id", u.peerID),
 		zap.String("network", u.networkType),
 		zap.String("laddr", conn.LocalAddr().String()),
 		zap.String("server1", u.serverAddress1),
 		zap.String("server2", u.serverAddress2),
-		zap.Uint("dial-timeout", u.dialTimeout),
+		zap.Uint32("dial-timeout", u.dialTimeout),
 	)
 
-	reqData := &data{
-		ID: u.clientID,
+	reqData := data{
+		ID: u.peerID,
+		Op: "ping1",
 	}
-	buf := make([]byte, 2048)
 
-	reqData.Op = "ping1"
-	reqBuf, _ := json.Marshal(reqData)
-	_, err = conn.WriteTo(reqBuf, serverAddr1)
+	err = u.writeData(conn, u.serverAddr1, &reqData)
 	if err != nil {
-		return nil, fmt.Errorf("ping1 WriteTo server %s err: %w", serverAddr1.String(), err)
-
+		return nil, fmt.Errorf("ping1 %s err: %w", u.serverAddr1.String(), err)
 	}
-	n, sraddr1, err := conn.ReadFrom(buf)
+
+	rcvData1, sraddr1, err := u.readData(conn)
 	if err != nil {
-		return nil, fmt.Errorf("ping1 ReadFrom server %s err: %w", serverAddr1.String(), err)
+		return nil, fmt.Errorf("ping1 %s err: %w", u.serverAddr1.String(), err)
 	}
 
-	rcvData1 := &data{}
-	if err := json.Unmarshal(buf[:n], rcvData1); err != nil {
-		return nil, fmt.Errorf("ping1 %s Unmarshal %s err: %w", sraddr1.String(), buf[:n], err)
-	}
 	if rcvData1.Op != "pong1" {
 		return nil, fmt.Errorf("ping1 %s got invalid response %s", sraddr1.String(), rcvData1.Op)
 	}
@@ -136,180 +162,177 @@ func (u *QuicClient) connPrepare() (net.PacketConn, error) {
 	logger.Info("ping1 success",
 		zap.String("raddr", sraddr1.String()),
 		zap.String("public", rcvData1.Public),
-		zap.Object("resp", rcvData1),
+		zap.Object("resp", &rcvData1),
 	)
 
 	reqData.Op = "ping2"
-	reqBuf2, _ := json.Marshal(reqData)
-	_, err = conn.WriteTo(reqBuf2, serverAddr2)
+	err = u.writeData(conn, u.serverAddr2, &reqData)
 	if err != nil {
-		return nil, fmt.Errorf("WriteTo server %s err: %w", serverAddr2.String(), err)
+		return nil, fmt.Errorf("ping2 %s err: %w", u.serverAddr2.String(), err)
 	}
 
-	n, sraddr2, err := conn.ReadFrom(buf)
+	rcvData2, sraddr2, err := u.readData(conn)
 	if err != nil {
-		return nil, fmt.Errorf("ping2 ReadFrom server %s err: %w", serverAddr1.String(), err)
+		return nil, fmt.Errorf("ping2 %s err: %w", u.serverAddr2.String(), err)
 	}
 
-	rcvData2 := &data{}
-	if err := json.Unmarshal(buf[:n], rcvData2); err != nil {
-		return nil, fmt.Errorf("ping2 %s Unmarshal %s err: %w", sraddr2.String(), buf[:n], err)
-	}
 	if rcvData2.Op != "pong2" {
 		return nil, fmt.Errorf("ping2 %s got invalid response %s", sraddr2.String(), rcvData2.Op)
 	}
 
 	if rcvData1.Public != rcvData2.Public {
-		logger.Warn("not a cone nat",
-			zap.String("public addr1", rcvData1.Public),
-			zap.String("public addr2", rcvData2.Public),
-			zap.Object("data", rcvData2),
-		)
-		return nil, fmt.Errorf("not a cone nat: %s != %s", rcvData1.Public, rcvData2.Public)
+		return nil, fmt.Errorf("not a cone nat %s != %s", rcvData1.Public, rcvData2.Public)
 	}
 
 	logger.Info("ping2 success",
 		zap.String("raddr", sraddr2.String()),
 		zap.String("public", rcvData2.Public),
-		zap.Object("resp", rcvData2),
+		zap.Object("resp", &rcvData2),
 	)
 
-	recvPeerMessage := make(chan string)
+	peerAddressMessage := make(chan string)
 	punchedMessage := make(chan bool)
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		punched := false
+		gotpong3 := false
 		for {
-			n, raddr, err := conn.ReadFrom(buf)
+			rcvData, raddr, err := u.readData(conn)
 			if err != nil {
-				logger.Warn("ReadFrom error",
-					zap.String("raddr", raddr.String()),
-					zap.Error(err),
-				)
-				break
-			}
-			rcvData := &data{}
-			if err := json.Unmarshal(buf[:n], rcvData); err != nil {
-				logger.Warn("Unmarshal response error",
-					zap.String("raddr", raddr.String()),
+				logger.Warn("read error",
 					zap.Error(err),
 				)
 				continue
 			}
 
 			switch rcvData.Op {
-			case "pong3": // response of ping3 from server
-				if rcvData.Peer != "" && !u.gotPeer.Load() {
-					u.gotPeer.Store(true)
-					recvPeerMessage <- rcvData.Peer
-				}
-			case "pping": // peer ping from peer
-				if !u.punched.Load() {
-					u.punched.Store(true)
+			case "sping": // peer server ping
+				if !punched {
+					punched = true
 					punchedMessage <- true
+				}
+				continue
+			case "pong3":
+				if !gotpong3 && rcvData.Peer != "" {
+					gotpong3 = true
+					peerAddressMessage <- rcvData.Peer
+				}
+				continue
+			case "cping": // peer client ping(peer server's reply)
+				if rcvData.Msg == "byebye" {
+					fmt.Println(rcvData.Op, rcvData.Msg)
+					return
 				}
 			default:
 				logger.Warn("recv unknown msg",
 					zap.String("raddr", raddr.String()),
-					zap.Object("data", rcvData),
+					zap.Object("data", &rcvData),
 				)
 				continue
 			}
 
 			logger.Info("recv msg",
 				zap.String("raddr", raddr.String()),
-				zap.Object("data", rcvData),
+				zap.Object("data", &rcvData),
 			)
 		}
 
 	}()
 
-	ticker := time.NewTicker(time.Duration(u.pingServerInterval) * time.Second)
 	peerAddress := ""
-ping3Loop:
-	for {
-		reqData.Op = "ping3"
-		reqBuf, _ := json.Marshal(reqData)
-		_, err = conn.WriteTo(reqBuf, serverAddr1)
+	ticker := time.NewTicker(time.Duration(u.pingServerInterval) * time.Second)
+requestLoop:
+	for i := 0; i < 10; i++ {
+		reqData.Op = "request" // request peer address
+		err = u.writeData(conn, u.serverAddr1, &reqData)
 		if err != nil {
-			return nil, fmt.Errorf("ping3 WriteTo server %s err: %w", serverAddr1.String(), err)
-
+			conn.Close()
+			return nil, fmt.Errorf("write to server %s err: %w", u.serverAddr1.String(), err)
 		}
-		logger.Info("ping3 success",
-			zap.String("raddr", serverAddr1.String()),
-			zap.Object("data", reqData),
+
+		logger.Info("request",
+			zap.String("server", u.serverAddr1.String()),
+			zap.Object("req", &reqData),
 		)
+
 		select {
-		case peerAddress = <-recvPeerMessage:
+		case peerAddress = <-peerAddressMessage:
 			logger.Info("got peer address",
-				zap.String("raddr", serverAddr1.String()),
+				zap.String("raddr", u.serverAddr1.String()),
 				zap.String("peer", peerAddress),
 			)
 			ticker.Stop()
-			break ping3Loop
+			break requestLoop
 		case <-ticker.C:
 			continue
 		}
-
 	}
 
+	if peerAddress == "" {
+		conn.Close()
+		return nil, fmt.Errorf("no peer address received")
+	}
 	peerAddr, err := net.ResolveUDPAddr(u.networkType, peerAddress)
 	if err != nil {
+		conn.Close()
 		return nil, fmt.Errorf("resolve peer %s err: %w", peerAddress, err)
 	}
-	pingPeerCount := 0
+
 	ticker = time.NewTicker(time.Duration(u.pingPeerInterval+mrand.Uint32()%u.pingPeerInterval) * time.Millisecond)
+	punched := false
+	reqData.Op = "cping"
+	reqData.Msg = "cping nat"
+	reqData.Peer = peerAddr.String()
 pingPeerLoop:
-	for {
-		reqData.Op = "pping"
-		reqData.Msg = "ping peer"
-		reqData.Peer = peerAddr.String()
-		reqBuf3, _ := json.Marshal(reqData)
-		_, err := conn.WriteTo(reqBuf3, peerAddr)
+	for i := uint32(1); i <= u.pingPeerNum; i++ {
+		err = u.writeData(conn, peerAddr, &reqData)
 		if err != nil {
-			logger.Warn("ping peer error",
+			logger.Warn("write to peer error",
 				zap.String("paddr", peerAddr.String()),
+				zap.String("op", reqData.Op),
 				zap.Error(err),
 			)
 		} else {
-			pingPeerCount++
-			logger.Debug("ping peer success",
+			logger.Debug("write to peer success",
 				zap.String("paddr", peerAddr.String()),
+				zap.String("op", reqData.Op),
 			)
-		}
-		if pingPeerCount > 10 {
-			return nil, fmt.Errorf("nat traversal failed")
 		}
 		select {
 		case <-punchedMessage:
-			logger.Info("traversal success",
-				zap.String("raddr", serverAddr1.String()),
+			logger.Info("punch success",
+				zap.String("raddr", u.serverAddr1.String()),
 				zap.String("peer", peerAddress),
 			)
 			ticker.Stop()
+			punched = true
 			break pingPeerLoop
 		case <-ticker.C:
 			continue
 		}
 	}
+	if !punched {
+		conn.Close()
+		return nil, fmt.Errorf("punch failed")
+	}
 	u.remoteAddress = peerAddress
 	return conn, nil
 }
 
-func (q *QuicClient) get(ctx context.Context, urlPath string, dialTimeout uint, filename string) error {
+func (q *QuicClient) get(ctx context.Context, urlPath string, filename string) error {
+	peerConn, err := q.connPrepare()
+	if err != nil {
+		return fmt.Errorf("prepare network error %w", err)
+	}
 	q.roundTripper.Dial = func(ctx context.Context, serverAddr string, tlsConf *tls.Config, config *quic.Config) (quic.EarlyConnection, error) {
-		udpConn, err := q.connPrepare()
-		if err != nil {
-			return nil, err
-		}
-
 		udpRemoteAddr, err := net.ResolveUDPAddr("udp", q.remoteAddress)
 		if err != nil {
 			return nil, err
 		}
 
-		qc, err := quic.DialContext(ctx, udpConn, udpRemoteAddr, q.remoteAddress, tlsConf, config)
+		qc, err := quic.DialContext(ctx, peerConn, udpRemoteAddr, q.remoteAddress, tlsConf, config)
 		if err != nil {
 			return nil, err
 		}
@@ -333,7 +356,7 @@ func (q *QuicClient) get(ctx context.Context, urlPath string, dialTimeout uint, 
 	if !strings.HasPrefix(urlPath, "/") {
 		urlPath = "/" + urlPath
 	}
-	addr := "https://" + q.serverAddress1 + urlPath
+	addr := "https://" + q.remoteAddress + urlPath
 
 	if len(q.keyLogFile) > 0 {
 		f, err := os.Create(q.keyLogFile)
@@ -384,17 +407,17 @@ func (q *QuicClient) get(ctx context.Context, urlPath string, dialTimeout uint, 
 	return nil
 }
 
-func (q *QuicClient) put(ctx context.Context, addr string, dialTimeout uint) error {
+func (q *QuicClient) put(ctx context.Context, addr string) error {
 
 	return nil
 }
 
-func (q *QuicClient) post(ctx context.Context, addr string, dialTimeout uint) error {
+func (q *QuicClient) post(ctx context.Context, addr string) error {
 
 	return nil
 }
 
-func (q *QuicClient) delete(ctx context.Context, addr string, dialTimeout uint) error {
+func (q *QuicClient) delete(ctx context.Context, addr string) error {
 
 	return nil
 }

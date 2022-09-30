@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"crypto/md5"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/signal"
 
+	"github.com/denisbrodbeck/machineid"
 	"github.com/lucas-clemente/quic-go"
 	"github.com/lucas-clemente/quic-go/http3"
 	"github.com/spf13/cobra"
@@ -16,11 +19,14 @@ import (
 )
 
 var (
-	version        = "0.0.0"
-	logger         *zap.Logger
-	serverAddress1      = "47.100.31.117:20019"
-	serverAddress2      = "47.103.138.1:20019"
-	dialTimeout    uint = 5
+	version            = "0.0.0"
+	logger             *zap.Logger
+	serverAddress1            = "47.100.31.117:20011"
+	serverAddress2            = "47.103.138.1:20011"
+	dialTimeout        uint32 = 5
+	pingServerInterval uint32 = 10
+	pingPeerInterval   uint32 = 100
+	pingPeerNum        uint32 = 20
 )
 
 func main() {
@@ -36,7 +42,13 @@ func main() {
 		PersistentPreRunE: func(*cobra.Command, []string) error {
 			var err error
 			initLogger(qc.debug)
-			qc.clientID, _ = os.Hostname()
+			ID, err := machineid.ID()
+			if err != nil {
+				return err
+			}
+			h := md5.New()
+			h.Write([]byte(ID))
+			qc.peerID = hex.EncodeToString(h.Sum(nil))
 
 			pool, err := x509.SystemCertPool()
 			if err != nil {
@@ -56,7 +68,11 @@ func main() {
 	rootCmd.PersistentFlags().BoolVarP(&qc.debug, "debug", "", false, "show debug log")
 	rootCmd.PersistentFlags().BoolVarP(&qc.nat, "nat", "", false, "nat traversal")
 	rootCmd.PersistentFlags().IntVarP(&qc.port, "port", "p", 0, "local port")
-	rootCmd.PersistentFlags().UintVar(&qc.dialTimeout, "dial-timeout", dialTimeout, "client dial timeout")
+	rootCmd.PersistentFlags().Uint32Var(&qc.dialTimeout, "dial-timeout", dialTimeout, "client dial timeout")
+	rootCmd.Flags().Uint32Var(&qc.pingServerInterval, "ping-server-interval", pingServerInterval, "ping server interval in second")
+	rootCmd.Flags().Uint32Var(&qc.pingPeerInterval, "ping-peer-interval", pingPeerInterval, "ping peer interval in millsecond")
+	rootCmd.Flags().Uint32Var(&qc.pingPeerNum, "ping-peer-num", pingPeerNum, "ping peer total num")
+
 	rootCmd.PersistentFlags().StringVar(&qc.serverAddress1, "s1", serverAddress1, "server address1")
 	rootCmd.PersistentFlags().StringVar(&qc.serverAddress2, "s2", serverAddress2, "server address2")
 
@@ -77,7 +93,7 @@ qc get https://192.168.1.6:6121/file localfile
 			if len(args) == 2 {
 				filename = args[1]
 			}
-			return qc.get(ctx, args[0], dialTimeout, filename)
+			return qc.get(ctx, args[0], filename)
 		},
 	}
 	rootCmd.AddCommand(qcGetCmd)
@@ -93,7 +109,7 @@ qc put https://192.168.1.6:6121/file localfile
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 			defer stop()
-			return qc.put(ctx, args[0], dialTimeout)
+			return qc.put(ctx, args[0])
 		},
 	}
 	rootCmd.AddCommand(qcPutCmd)
@@ -109,7 +125,7 @@ qc post https://192.168.1.6:6121/file localfile
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 			defer stop()
-			return qc.post(ctx, args[0], dialTimeout)
+			return qc.post(ctx, args[0])
 		},
 	}
 	rootCmd.AddCommand(qcPostCmd)
@@ -125,7 +141,7 @@ qc del https://192.168.1.6:6121/file localfile
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 			defer stop()
-			return qc.delete(ctx, args[0], dialTimeout)
+			return qc.delete(ctx, args[0])
 		},
 	}
 	rootCmd.AddCommand(qcDeleteCmd)

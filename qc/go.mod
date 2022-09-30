@@ -3,6 +3,7 @@ module qc
 go 1.19
 
 require (
+	github.com/denisbrodbeck/machineid v1.0.1
 	github.com/libp2p/go-reuseport v0.2.0
 	github.com/lucas-clemente/quic-go v0.29.1
 	github.com/spf13/cobra v1.5.0

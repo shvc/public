@@ -28,6 +28,7 @@ var (
 	pingServerInterval uint32 = 10
 	pingPeerInterval   uint32 = 100
 	pingPeerNum        uint32 = 20
+	pingPeerDelay      uint32 = 0
 )
 
 func main() {
@@ -55,9 +56,10 @@ func main() {
 	rootCmd.PersistentFlags().Uint32Var(&dialTimeout, "dial-timeout", dialTimeout, "client dial timeout")
 	rootCmd.PersistentFlags().StringVar(&serverAddress1, "s1", serverAddress1, "server address1")
 	rootCmd.PersistentFlags().StringVar(&serverAddress2, "s2", serverAddress2, "server address2")
-	rootCmd.Flags().Uint32Var(&pingServerInterval, "ping-server-interval", pingServerInterval, "ping server interval in second")
-	rootCmd.Flags().Uint32Var(&pingPeerInterval, "ping-peer-interval", pingPeerInterval, "ping peer interval in millsecond")
-	rootCmd.Flags().Uint32Var(&pingPeerNum, "ping-peer-num", pingPeerNum, "ping peer total num")
+	rootCmd.PersistentFlags().Uint32Var(&pingServerInterval, "ping-server-interval", pingServerInterval, "ping server interval in second")
+	rootCmd.PersistentFlags().Uint32Var(&pingPeerInterval, "ping-peer-interval", pingPeerInterval, "ping peer interval in millsecond")
+	rootCmd.PersistentFlags().Uint32Var(&pingPeerDelay, "ping-peer-delay", pingPeerDelay, "ping peer delay in millsecond")
+	rootCmd.PersistentFlags().Uint32Var(&pingPeerNum, "ping-peer-num", pingPeerNum, "ping peer total num")
 
 	serverCmd := &cobra.Command{
 		Use:   "server",
@@ -108,12 +110,13 @@ ntn us
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 			u := NewUdpPeer(clientID, serverAddress1, serverAddress2)
-			return u.UDPPeerServer(ctx, localPort, dialTimeout, pingServerInterval, pingPeerInterval, pingPeerNum)
+			return u.UDPPeerServer(ctx, localPort, dialTimeout, pingServerInterval, pingPeerInterval, pingPeerNum, pingPeerDelay)
 		},
 	}
 	rootCmd.AddCommand(udpPeerServerCmd)
 
 	var helloInterval uint32 = 10
+
 	udpPeerClientCmd := &cobra.Command{
 		Use:     "udp-peer-client",
 		Aliases: []string{"uc"},
@@ -125,7 +128,7 @@ ntn uc
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 			u := NewUdpPeer(clientID, serverAddress1, serverAddress2)
-			return u.UDPPeerClient(ctx, localPort, dialTimeout, pingServerInterval, pingPeerInterval, pingPeerNum, helloInterval)
+			return u.UDPPeerClient(ctx, localPort, dialTimeout, pingServerInterval, pingPeerInterval, pingPeerNum, pingPeerDelay, helloInterval)
 		},
 	}
 	udpPeerClientCmd.Flags().Uint32Var(&helloInterval, "hello-interval", helloInterval, "say hello interval in second")

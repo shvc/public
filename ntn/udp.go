@@ -192,7 +192,7 @@ func (u *UDPPeer) prepare(port uint) (conn net.PacketConn, e error) {
 	return
 }
 
-func (u *UDPPeer) UDPPeerServer(ctx context.Context, port uint, dialTimeout, reportInterval, pingPeerInterval, pingPeerNum uint32) (e error) {
+func (u *UDPPeer) UDPPeerServer(ctx context.Context, port uint, dialTimeout, reportInterval, pingPeerInterval, pingPeerNum, pingPeerDelay uint32) (e error) {
 	conn, err := u.prepare(port)
 	if err != nil {
 		fmt.Println(err)
@@ -213,7 +213,7 @@ func (u *UDPPeer) UDPPeerServer(ctx context.Context, port uint, dialTimeout, rep
 			}
 
 			switch rcvData.Op {
-			case "pong3": // response of ping3 from server
+			case "pong3": // response of report from server
 				if rcvData.Peer != "" {
 					go func(peerAddress string) {
 						peerAddr, err := net.ResolveUDPAddr(u.networkType, peerAddress)
@@ -226,6 +226,9 @@ func (u *UDPPeer) UDPPeerServer(ctx context.Context, port uint, dialTimeout, rep
 						}
 						reqData := &data{
 							ID: u.peerID,
+						}
+						if pingPeerDelay > 0 {
+							time.Sleep(time.Duration(pingPeerDelay) * time.Millisecond)
 						}
 						ticker := time.NewTicker(time.Duration(pingPeerInterval+mrand.Uint32()%pingPeerInterval) * time.Millisecond)
 						defer ticker.Stop()
@@ -306,7 +309,7 @@ func (u *UDPPeer) UDPPeerServer(ctx context.Context, port uint, dialTimeout, rep
 
 }
 
-func (u *UDPPeer) UDPPeerClient(ctx context.Context, port uint, dialTimeout, pingServerInterval, pingPeerInterval, pingPeerCount, helloInterval uint32) (e error) {
+func (u *UDPPeer) UDPPeerClient(ctx context.Context, port uint, dialTimeout, pingServerInterval, pingPeerInterval, pingPeerNum, pingPeerDelay, helloInterval uint32) (e error) {
 	conn, err := u.prepare(port)
 	if err != nil {
 		fmt.Println(err)
@@ -401,14 +404,19 @@ requestLoop:
 	if err != nil {
 		return fmt.Errorf("resolve peer %s err: %w", peerAddress, err)
 	}
-	ticker = time.NewTicker(time.Duration(pingPeerInterval+mrand.Uint32()%pingPeerInterval) * time.Millisecond)
+
 	punched := false
 	reqData.Op = "cping"
 	reqData.Msg = "cping nat"
 	reqData.Peer = peerAddr.String()
-	for i := uint32(1); i <= pingPeerCount; i++ {
+
+	if pingPeerDelay > 0 {
+		time.Sleep(time.Duration(pingPeerDelay) * time.Millisecond)
+	}
+	ticker = time.NewTicker(time.Duration(pingPeerInterval+mrand.Uint32()%pingPeerInterval) * time.Millisecond)
+	for i := uint32(1); i <= pingPeerNum; i++ {
 		if punched {
-			if i == pingPeerCount {
+			if i == pingPeerNum {
 				reqData.Msg = "byebye"
 			} else {
 				reqData.Msg = u.peerID + " say hello@" + time.Now().Format("2006-01-02T15:04:05Z")

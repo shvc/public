@@ -56,7 +56,7 @@ func main() {
 	rootCmd.PersistentFlags().StringVar(&serverAddress1, "s1", serverAddress1, "server address1")
 	rootCmd.PersistentFlags().StringVar(&serverAddress2, "s2", serverAddress2, "server address2")
 	rootCmd.PersistentFlags().Uint32Var(&reportInterval, "report-interval", reportInterval, "report status to public server interval in second")
-	rootCmd.PersistentFlags().Uint32Var(&pingPeerInterval, "ping-peer-interval", pingPeerInterval, "ping peer interval in millsecond")
+	rootCmd.PersistentFlags().Uint32Var(&pingPeerInterval, "ping-peer-interval", pingPeerInterval, "ping peer random interval in millsecond")
 	rootCmd.PersistentFlags().Uint32Var(&pingPeerDelay, "ping-peer-delay", pingPeerDelay, "ping peer delay in millsecond")
 
 	serverCmd := &cobra.Command{

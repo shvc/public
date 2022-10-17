@@ -231,7 +231,7 @@ func (u *UDPPeer) UDPPeerServer(ctx context.Context, port uint, dialTimeout, rep
 						if pingPeerDelay > 0 {
 							time.Sleep(time.Duration(pingPeerDelay) * time.Millisecond)
 						}
-						ticker := time.NewTicker(time.Duration(pingPeerInterval+mrand.Uint32()%pingPeerInterval) * time.Millisecond)
+						ticker := time.NewTicker(time.Duration(mrand.Uint32()%pingPeerInterval) * time.Millisecond)
 						defer ticker.Stop()
 						if rcvData.PingNum < 1 {
 							rcvData.PingNum = 10
@@ -250,6 +250,7 @@ func (u *UDPPeer) UDPPeerServer(ctx context.Context, port uint, dialTimeout, rep
 							} else {
 								logger.Debug("sping success",
 									zap.String("paddr", peerAddr.String()),
+									zap.Uint32("num", i),
 								)
 							}
 							select {
@@ -419,7 +420,7 @@ requestLoop:
 	if pingPeerDelay > 0 {
 		time.Sleep(time.Duration(pingPeerDelay) * time.Millisecond)
 	}
-	ticker = time.NewTicker(time.Duration(pingPeerInterval+mrand.Uint32()%pingPeerInterval) * time.Millisecond)
+	ticker = time.NewTicker(time.Duration(mrand.Uint32()%pingPeerInterval) * time.Millisecond)
 	for i := uint32(1); i <= pingPeerNum; i++ {
 		if punched {
 			if i == pingPeerNum {
@@ -438,6 +439,7 @@ requestLoop:
 			)
 		} else {
 			logger.Debug("write to peer success",
+				zap.Uint32("num", i),
 				zap.String("op", reqData.Op),
 				zap.String("msg", reqData.Msg),
 				zap.String("paddr", peerAddr.String()),

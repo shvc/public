@@ -16,19 +16,19 @@ import (
 )
 
 var (
-	version            = "0.0.0"
-	clientID           = ""
-	logger             *zap.Logger
-	debug              bool
-	serverPort         uint   = 20017
-	localPort          uint   = 0
-	serverAddress1            = "47.100.31.117:20017"
-	serverAddress2            = "47.103.138.1:20017"
-	dialTimeout        uint32 = 5
-	pingServerInterval uint32 = 10
-	pingPeerInterval   uint32 = 100
-	pingPeerNum        uint32 = 20
-	pingPeerDelay      uint32 = 0
+	version          = "0.0.0"
+	clientID         = ""
+	logger           *zap.Logger
+	debug            bool
+	serverPort       uint   = 20017
+	localPort        uint   = 0
+	serverAddress1          = "47.100.31.117:20017"
+	serverAddress2          = "47.103.138.1:20017"
+	dialTimeout      uint32 = 5
+	reportInterval   uint32 = 20
+	pingPeerInterval uint32 = 100
+	pingPeerNum      uint32 = 20
+	pingPeerDelay    uint32 = 0
 )
 
 func main() {
@@ -56,7 +56,7 @@ func main() {
 	rootCmd.PersistentFlags().Uint32Var(&dialTimeout, "dial-timeout", dialTimeout, "client dial timeout")
 	rootCmd.PersistentFlags().StringVar(&serverAddress1, "s1", serverAddress1, "server address1")
 	rootCmd.PersistentFlags().StringVar(&serverAddress2, "s2", serverAddress2, "server address2")
-	rootCmd.PersistentFlags().Uint32Var(&pingServerInterval, "ping-server-interval", pingServerInterval, "ping server interval in second")
+	rootCmd.PersistentFlags().Uint32Var(&reportInterval, "report-interval", reportInterval, "report status to public server interval in second")
 	rootCmd.PersistentFlags().Uint32Var(&pingPeerInterval, "ping-peer-interval", pingPeerInterval, "ping peer interval in millsecond")
 	rootCmd.PersistentFlags().Uint32Var(&pingPeerDelay, "ping-peer-delay", pingPeerDelay, "ping peer delay in millsecond")
 	rootCmd.PersistentFlags().Uint32Var(&pingPeerNum, "ping-peer-num", pingPeerNum, "ping peer total num")
@@ -72,7 +72,7 @@ ntn server
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 			sv := &PublicServer{
-				pingServerInterval: pingPeerInterval,
+				reportInterval: reportInterval,
 			}
 			return sv.Start(ctx, serverPort)
 		},
@@ -110,7 +110,7 @@ ntn us
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 			u := NewUdpPeer(clientID, serverAddress1, serverAddress2)
-			return u.UDPPeerServer(ctx, localPort, dialTimeout, pingServerInterval, pingPeerInterval, pingPeerNum, pingPeerDelay)
+			return u.UDPPeerServer(ctx, localPort, dialTimeout, reportInterval, pingPeerInterval, pingPeerNum, pingPeerDelay)
 		},
 	}
 	rootCmd.AddCommand(udpPeerServerCmd)
@@ -128,7 +128,7 @@ ntn uc
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 			u := NewUdpPeer(clientID, serverAddress1, serverAddress2)
-			return u.UDPPeerClient(ctx, localPort, dialTimeout, pingServerInterval, pingPeerInterval, pingPeerNum, pingPeerDelay, helloInterval)
+			return u.UDPPeerClient(ctx, localPort, dialTimeout, reportInterval, pingPeerInterval, pingPeerNum, pingPeerDelay, helloInterval)
 		},
 	}
 	udpPeerClientCmd.Flags().Uint32Var(&helloInterval, "hello-interval", helloInterval, "say hello interval in second")

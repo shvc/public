@@ -20,7 +20,7 @@ type store struct {
 }
 
 type PublicServer struct {
-	pingServerInterval uint32
+	reportInterval uint32
 	sync.RWMutex
 	v map[string]store
 }
@@ -142,7 +142,7 @@ func (s *PublicServer) processTCPConn(conn net.Conn) {
 func (s *PublicServer) set(v data, status int) {
 	s.Lock()
 	defer s.Unlock()
-	s.v[v.ID] = store{expire: time.Now().Unix() + int64(s.pingServerInterval) + 10, data: v, status: status}
+	s.v[v.ID] = store{expire: time.Now().Unix() + int64(s.reportInterval) + 10, data: v, status: status}
 }
 
 func (s *PublicServer) delete(k string) {

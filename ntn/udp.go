@@ -309,7 +309,7 @@ func (u *UDPPeer) UDPPeerServer(ctx context.Context, port uint, dialTimeout, rep
 
 }
 
-func (u *UDPPeer) UDPPeerClient(ctx context.Context, port uint, dialTimeout, pingServerInterval, pingPeerInterval, pingPeerNum, pingPeerDelay, helloInterval uint32) (e error) {
+func (u *UDPPeer) UDPPeerClient(ctx context.Context, port uint, dialTimeout, requestInterval, pingPeerInterval, pingPeerNum, pingPeerDelay, helloInterval uint32) (e error) {
 	conn, err := u.prepare(port)
 	if err != nil {
 		fmt.Println(err)
@@ -368,7 +368,7 @@ func (u *UDPPeer) UDPPeerClient(ctx context.Context, port uint, dialTimeout, pin
 	}
 
 	peerAddress := ""
-	ticker := time.NewTicker(time.Duration(pingServerInterval) * time.Second)
+	ticker := time.NewTicker(time.Duration(requestInterval) * time.Second)
 requestLoop:
 	for i := 0; i < 10; i++ {
 		reqData.Op = "request" // request peer address

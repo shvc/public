@@ -5,7 +5,7 @@ go 1.19
 require (
 	github.com/denisbrodbeck/machineid v1.0.1
 	github.com/libp2p/go-reuseport v0.2.0
-	github.com/lucas-clemente/quic-go v0.29.1
+	github.com/lucas-clemente/quic-go v0.29.2
 	github.com/spf13/cobra v1.5.0
 	go.uber.org/zap v1.23.0
 )
@@ -16,8 +16,8 @@ require (
 	github.com/golang/mock v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
 	github.com/marten-seemann/qpack v0.2.1 // indirect
-	github.com/marten-seemann/qtls-go1-18 v0.1.2 // indirect
-	github.com/marten-seemann/qtls-go1-19 v0.1.0 // indirect
+	github.com/marten-seemann/qtls-go1-18 v0.1.3 // indirect
+	github.com/marten-seemann/qtls-go1-19 v0.1.1 // indirect
 	github.com/nxadm/tail v1.4.8 // indirect
 	github.com/onsi/ginkgo v1.16.4 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect

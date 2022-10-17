@@ -6,4 +6,5 @@ use (
 	./upnp
 	./qc
 	./qs
+	./gin0
 )

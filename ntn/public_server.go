@@ -279,9 +279,15 @@ func (s *PublicServer) startUDPServer(ctx context.Context, lc *net.ListenConfig,
 			switch rcvData.Op {
 			case "ping1":
 				//s.set(rcvData, 1)
+				logger.Debug("recv ping1",
+					zap.Object("req", &rcvData),
+				)
 				rspData.Op = "pong1"
 			case "ping2":
 				//s.set(rcvData, 2)
+				logger.Debug("recv ping2",
+					zap.Object("req", &rcvData),
+				)
 				rspData.Op = "pong2"
 			case "report":
 				s.set(rcvData, 3)
@@ -291,6 +297,9 @@ func (s *PublicServer) startUDPServer(ctx context.Context, lc *net.ListenConfig,
 				)
 				continue
 			case "request":
+				logger.Debug("recv request",
+					zap.Object("req", &rcvData),
+				)
 				rspData.Op = "pong3"
 				rspData.Msg, rspData.Peer = s.selectOnePeer(rcvData.ID, 3)
 				if rspData.Peer == "" {

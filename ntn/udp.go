@@ -19,12 +19,13 @@ func init() {
 }
 
 type data struct {
-	ID     string `json:"id,omitempty"`
-	Local  string `json:"local,omitempty"`
-	Public string `json:"public,omitempty"`
-	Peer   string `json:"peer,omitempty"`
-	Msg    string `json:"msg,omitempty"`
-	Op     string `json:"op,omitempty"`
+	ID      string `json:"id,omitempty"`
+	Local   string `json:"local,omitempty"`
+	Public  string `json:"public,omitempty"`
+	Peer    string `json:"peer,omitempty"`
+	Msg     string `json:"msg,omitempty"`
+	Op      string `json:"op,omitempty"`
+	PingNum uint32 `json:"pingnum,omitempty"`
 }
 
 func (f *data) MarshalLogObject(enc zapcore.ObjectEncoder) error {
@@ -192,7 +193,7 @@ func (u *UDPPeer) prepare(port uint) (conn net.PacketConn, e error) {
 	return
 }
 
-func (u *UDPPeer) UDPPeerServer(ctx context.Context, port uint, dialTimeout, reportInterval, pingPeerInterval, pingPeerNum, pingPeerDelay uint32) (e error) {
+func (u *UDPPeer) UDPPeerServer(ctx context.Context, port uint, dialTimeout, reportInterval, pingPeerInterval, pingPeerDelay uint32) (e error) {
 	conn, err := u.prepare(port)
 	if err != nil {
 		fmt.Println(err)
@@ -232,10 +233,14 @@ func (u *UDPPeer) UDPPeerServer(ctx context.Context, port uint, dialTimeout, rep
 						}
 						ticker := time.NewTicker(time.Duration(pingPeerInterval+mrand.Uint32()%pingPeerInterval) * time.Millisecond)
 						defer ticker.Stop()
-						for i := uint32(1); i <= pingPeerNum; i++ {
+						if rcvData.PingNum < 1 {
+							rcvData.PingNum = 10
+						}
+						for i := uint32(0); i < rcvData.PingNum; i++ {
 							reqData.Op = "sping"
 							reqData.Msg = "sping peer"
 							reqData.Peer = peerAddr.String()
+							reqData.PingNum = i
 							err = u.writeData(conn, peerAddr, reqData)
 							if err != nil {
 								logger.Warn("sping error",
@@ -364,7 +369,8 @@ func (u *UDPPeer) UDPPeerClient(ctx context.Context, port uint, dialTimeout, req
 	}()
 
 	reqData := &data{
-		ID: u.peerID,
+		ID:      u.peerID,
+		PingNum: pingPeerNum,
 	}
 
 	peerAddress := ""

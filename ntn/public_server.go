@@ -206,20 +206,50 @@ func (s *PublicServer) selectOnePeer(exclude string, status int) (string, string
 	return "", ""
 }
 
-func (s *PublicServer) notify(conn net.PacketConn, ID, addr, peerAddr string) error {
+func (s *PublicServer) notify(conn net.PacketConn, ID, addr, peerAddr string, pingNum uint32) error {
 	pAddr, err := net.ResolveUDPAddr("udp4", addr)
 	if err != nil {
 		return fmt.Errorf("resolve notify addr %s err: %w", addr, err)
 	}
 	rspData := &data{
-		ID:     ID,
-		Public: addr,
-		Peer:   peerAddr,
-		Op:     "pong3",
+		ID:      ID,
+		Public:  addr,
+		Peer:    peerAddr,
+		Op:      "pong3",
+		PingNum: pingNum,
 	}
-	rspBuf, _ := json.Marshal(rspData)
-	_, err = conn.WriteTo(rspBuf, pAddr)
-	return err
+
+	return s.writeData(conn, pAddr, rspData)
+}
+
+func (u *PublicServer) readData(conn net.PacketConn) (dat data, raddr net.Addr, e error) {
+	buf := make([]byte, 1024)
+	n, raddr, err := conn.ReadFrom(buf)
+	if err != nil {
+		e = fmt.Errorf("read err: %w", err)
+		return
+	}
+
+	if err := json.Unmarshal(buf[:n], &dat); err != nil {
+		e = fmt.Errorf("unmarshal from %s err: %w", raddr.String(), err)
+		return
+	}
+
+	return
+}
+
+func (u *PublicServer) writeData(conn net.PacketConn, raddr net.Addr, dat *data) error {
+	reqBuf, err := json.Marshal(dat)
+	if err != nil {
+		return fmt.Errorf("marshal err: %w", err)
+	}
+
+	_, err = conn.WriteTo(reqBuf, raddr)
+	if err != nil {
+		return fmt.Errorf("write err: %w", err)
+	}
+
+	return nil
 }
 
 func (s *PublicServer) startUDPServer(ctx context.Context, lc *net.ListenConfig, addr string) error {
@@ -233,39 +263,24 @@ func (s *PublicServer) startUDPServer(ctx context.Context, lc *net.ListenConfig,
 		zap.String("addr", conn.LocalAddr().String()),
 	)
 
-	buf := make([]byte, 2048)
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		default:
-			n, raddr, err := conn.ReadFrom(buf)
+			rcvData, raddr, err := s.readData(conn)
 			if err != nil {
-				logger.Warn("ReadFrom error",
+				logger.Warn("readData error",
 					zap.String("laddr", conn.LocalAddr().String()),
-					zap.Error(err),
-				)
-				continue
-			}
-
-			rcvData := data{}
-			if err := json.Unmarshal(buf[:n], &rcvData); err != nil {
-				logger.Warn("readFrom success but decode error",
-					zap.Int("len", n),
-					zap.String("laddr", conn.LocalAddr().String()),
-					zap.String("raddr", raddr.String()),
-					zap.ByteString("content", buf[:n]),
 					zap.Error(err),
 				)
 				continue
 			}
 
 			if rcvData.ID == "" {
-				logger.Warn("readFrom success but no ID",
-					zap.Int("len", n),
+				logger.Warn("readData success but no ID",
 					zap.String("laddr", conn.LocalAddr().String()),
 					zap.String("raddr", raddr.String()),
-					zap.ByteString("content", buf[:n]),
 				)
 				continue
 			}
@@ -309,7 +324,7 @@ func (s *PublicServer) startUDPServer(ctx context.Context, lc *net.ListenConfig,
 					)
 					continue
 				}
-				if err := s.notify(conn, rspData.Msg, rspData.Peer, rcvData.Public); err != nil {
+				if err := s.notify(conn, rspData.Msg, rspData.Peer, rcvData.Public, rcvData.PingNum); err != nil {
 					logger.Warn("notify peer server error",
 						zap.String("laddr", conn.LocalAddr().String()),
 						zap.String("peer server", rspData.Peer),
@@ -327,16 +342,14 @@ func (s *PublicServer) startUDPServer(ctx context.Context, lc *net.ListenConfig,
 				)
 			default:
 				logger.Warn("unknown op",
-					zap.Int("len", n),
 					zap.String("laddr", conn.LocalAddr().String()),
 					zap.String("raddr", raddr.String()),
 					zap.String("op", rcvData.Op),
-					zap.ByteString("content", buf[:n]),
 				)
 				continue
 			}
-			rspBuf, _ := json.Marshal(rspData)
-			_, err = conn.WriteTo(rspBuf, raddr)
+
+			err = s.writeData(conn, raddr, rspData)
 			if err != nil {
 				logger.Warn("send response error",
 					zap.Object("req", &rcvData),

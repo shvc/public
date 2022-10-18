@@ -20,14 +20,13 @@ var (
 	clientID         = ""
 	logger           *zap.Logger
 	debug            bool
-	serverPort       uint   = 20017
+	serverPort       uint   = 20018
 	localPort        uint   = 0
-	serverAddress1          = "47.100.31.117:20017"
-	serverAddress2          = "47.103.138.1:20017"
+	serverAddress1          = fmt.Sprintf("47.100.31.117:%v", serverPort)
+	serverAddress2          = fmt.Sprintf("47.103.138.1:%v", serverPort)
 	dialTimeout      uint32 = 5
 	reportInterval   uint32 = 20
 	pingPeerInterval uint32 = 100
-	pingPeerDelay    uint32 = 0
 )
 
 func main() {
@@ -57,7 +56,6 @@ func main() {
 	rootCmd.PersistentFlags().StringVar(&serverAddress2, "s2", serverAddress2, "server address2")
 	rootCmd.PersistentFlags().Uint32Var(&reportInterval, "report-interval", reportInterval, "report status to public server interval in second")
 	rootCmd.PersistentFlags().Uint32Var(&pingPeerInterval, "ping-peer-interval", pingPeerInterval, "ping peer random interval in millsecond")
-	rootCmd.PersistentFlags().Uint32Var(&pingPeerDelay, "ping-peer-delay", pingPeerDelay, "ping peer delay in millsecond")
 
 	serverCmd := &cobra.Command{
 		Use:   "server",
@@ -108,7 +106,7 @@ ntn us
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 			u := NewUdpPeer(clientID, serverAddress1, serverAddress2)
-			return u.UDPPeerServer(ctx, localPort, dialTimeout, reportInterval, pingPeerInterval, pingPeerDelay)
+			return u.UDPPeerServer(ctx, localPort, dialTimeout, reportInterval, pingPeerInterval)
 		},
 	}
 	rootCmd.AddCommand(udpPeerServerCmd)
@@ -126,7 +124,7 @@ ntn uc
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := context.Background()
 			u := NewUdpPeer(clientID, serverAddress1, serverAddress2)
-			return u.UDPPeerClient(ctx, localPort, dialTimeout, reportInterval, pingPeerInterval, pingPeerNum, pingPeerDelay, helloInterval)
+			return u.UDPPeerClient(ctx, localPort, dialTimeout, reportInterval, pingPeerInterval, pingPeerNum, helloInterval)
 		},
 	}
 	udpPeerClientCmd.Flags().Uint32Var(&helloInterval, "hello-interval", helloInterval, "say hello interval in second")

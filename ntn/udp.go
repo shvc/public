@@ -193,7 +193,7 @@ func (u *UDPPeer) prepare(port uint) (conn net.PacketConn, e error) {
 	return
 }
 
-func (u *UDPPeer) UDPPeerServer(ctx context.Context, port uint, dialTimeout, reportInterval, pingPeerInterval, pingPeerDelay uint32) (e error) {
+func (u *UDPPeer) UDPPeerServer(ctx context.Context, port uint, dialTimeout, reportInterval, pingPeerInterval uint32) (e error) {
 	conn, err := u.prepare(port)
 	if err != nil {
 		fmt.Println(err)
@@ -227,9 +227,6 @@ func (u *UDPPeer) UDPPeerServer(ctx context.Context, port uint, dialTimeout, rep
 						}
 						reqData := &data{
 							ID: u.peerID,
-						}
-						if pingPeerDelay > 0 {
-							time.Sleep(time.Duration(pingPeerDelay) * time.Millisecond)
 						}
 						ticker := time.NewTicker(time.Duration(mrand.Uint32()%pingPeerInterval) * time.Millisecond)
 						defer ticker.Stop()
@@ -315,7 +312,7 @@ func (u *UDPPeer) UDPPeerServer(ctx context.Context, port uint, dialTimeout, rep
 
 }
 
-func (u *UDPPeer) UDPPeerClient(ctx context.Context, port uint, dialTimeout, requestInterval, pingPeerInterval, pingPeerNum, pingPeerDelay, helloInterval uint32) (e error) {
+func (u *UDPPeer) UDPPeerClient(ctx context.Context, port uint, dialTimeout, requestInterval, pingPeerInterval, pingPeerNum, helloInterval uint32) (e error) {
 	conn, err := u.prepare(port)
 	if err != nil {
 		fmt.Println(err)
@@ -417,14 +414,7 @@ requestLoop:
 	reqData.Msg = "cping nat"
 	reqData.Peer = peerAddr.String()
 
-	if pingPeerDelay > 0 {
-		logger.Info("ping peer delay millisecond",
-			zap.Uint32("delay", pingPeerDelay),
-		)
-		time.Sleep(time.Duration(pingPeerDelay) * time.Millisecond)
-	}
 	ticker = time.NewTicker(time.Duration(mrand.Uint32()%pingPeerInterval) * time.Millisecond)
-	//defer ticker.Stop()
 	for i := uint32(1); i <= pingPeerNum; i++ {
 		if punched {
 			if i == pingPeerNum {
@@ -461,6 +451,7 @@ requestLoop:
 			continue
 		}
 	}
+	ticker.Stop()
 
 	return
 }

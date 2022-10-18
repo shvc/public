@@ -345,8 +345,8 @@ func (u *UDPPeer) UDPPeerClient(ctx context.Context, port uint, dialTimeout, req
 				continue
 			case "pong3":
 				if !gotpong3 && rcvData.Peer != "" {
-					gotpong3 = true
 					peerAddressMessage <- rcvData.Peer
+					gotpong3 = true
 				}
 				continue
 			case "cping": // peer client ping(peer server's reply)
@@ -391,10 +391,6 @@ requestLoop:
 
 		select {
 		case peerAddress = <-peerAddressMessage:
-			logger.Info("got peer address",
-				zap.String("raddr", u.serverAddr1.String()),
-				zap.String("peer", peerAddress),
-			)
 			ticker.Stop()
 			break requestLoop
 		case <-ticker.C:
@@ -406,6 +402,10 @@ requestLoop:
 		fmt.Println("no peer address received")
 		return
 	}
+	logger.Info("got peer address",
+		zap.String("raddr", u.serverAddr1.String()),
+		zap.String("peer", peerAddress),
+	)
 
 	peerAddr, err := net.ResolveUDPAddr(u.networkType, peerAddress)
 	if err != nil {
@@ -418,10 +418,13 @@ requestLoop:
 	reqData.Peer = peerAddr.String()
 
 	if pingPeerDelay > 0 {
+		logger.Info("ping peer delay millisecond",
+			zap.Uint32("delay", pingPeerDelay),
+		)
 		time.Sleep(time.Duration(pingPeerDelay) * time.Millisecond)
 	}
 	ticker = time.NewTicker(time.Duration(mrand.Uint32()%pingPeerInterval) * time.Millisecond)
-	defer ticker.Stop()
+	//defer ticker.Stop()
 	for i := uint32(1); i <= pingPeerNum; i++ {
 		if punched {
 			if i == pingPeerNum {

@@ -284,85 +284,89 @@ func (s *PublicServer) startUDPServer(ctx context.Context, lc *net.ListenConfig,
 				)
 				continue
 			}
-			// set public addr
-			rcvData.Public = raddr.String()
-			rspData := &data{
-				ID:     rcvData.ID,
-				Public: rcvData.Public,
-			}
 
-			switch rcvData.Op {
-			case "ping1":
-				//s.set(rcvData, 1)
-				logger.Debug("recv ping1",
-					zap.Object("req", &rcvData),
-				)
-				rspData.Op = "pong1"
-			case "ping2":
-				//s.set(rcvData, 2)
-				logger.Debug("recv ping2",
-					zap.Object("req", &rcvData),
-				)
-				rspData.Op = "pong2"
-			case "report":
-				s.set(rcvData, 3)
-				logger.Info("report",
-					zap.String("raddr", raddr.String()),
-					zap.Object("req", &rcvData),
-				)
-				continue
-			case "request":
-				logger.Debug("recv request",
-					zap.Object("req", &rcvData),
-				)
-				rspData.Op = "pong3"
-				rspData.Msg, rspData.Peer = s.selectOnePeer(rcvData.ID, 3)
-				if rspData.Peer == "" {
-					logger.Warn("no peer server candidate",
+			go func() {
+				// set public addr
+				rcvData.Public = raddr.String()
+				rspData := &data{
+					ID:     rcvData.ID,
+					Public: rcvData.Public,
+				}
+
+				switch rcvData.Op {
+				case "ping1":
+					//s.set(rcvData, 1)
+					logger.Debug("recv ping1",
+						zap.Object("req", &rcvData),
+					)
+					rspData.Op = "pong1"
+				case "ping2":
+					//s.set(rcvData, 2)
+					logger.Debug("recv ping2",
+						zap.Object("req", &rcvData),
+					)
+					rspData.Op = "pong2"
+				case "report":
+					s.set(rcvData, 3)
+					logger.Info("report",
 						zap.String("raddr", raddr.String()),
 						zap.Object("req", &rcvData),
 					)
-					continue
-				}
-				if err := s.notify(conn, rspData.Msg, rspData.Peer, rcvData.Public, rcvData.PingNum); err != nil {
-					logger.Warn("notify peer server error",
+					return
+				case "request":
+					logger.Debug("recv request",
+						zap.Object("req", &rcvData),
+					)
+					rspData.Op = "pong3"
+					rspData.Msg, rspData.Peer = s.selectOnePeer(rcvData.ID, 3)
+					if rspData.Peer == "" {
+						logger.Warn("no peer server candidate",
+							zap.String("raddr", raddr.String()),
+							zap.Object("req", &rcvData),
+						)
+						return
+					}
+					if err := s.notify(conn, rspData.Msg, rspData.Peer, rcvData.Public, rcvData.PingNum); err != nil {
+						logger.Warn("notify peer server error",
+							zap.String("laddr", conn.LocalAddr().String()),
+							zap.String("peer server", rspData.Peer),
+							zap.String("peer client", rcvData.Public),
+							zap.String("peer id", rspData.Msg),
+							zap.Error(err),
+						)
+						return
+					}
+					logger.Info("notify peer server success",
 						zap.String("laddr", conn.LocalAddr().String()),
-						zap.String("peer server", rspData.Peer),
-						zap.String("peer client", rcvData.Public),
+						zap.String("raddr", rspData.Peer),
+						zap.String("peer address", rcvData.Public),
 						zap.String("peer id", rspData.Msg),
+					)
+				default:
+					logger.Warn("unknown op",
+						zap.String("laddr", conn.LocalAddr().String()),
+						zap.String("raddr", raddr.String()),
+						zap.String("op", rcvData.Op),
+					)
+					return
+				}
+
+				err = s.writeData(conn, raddr, rspData)
+				if err != nil {
+					logger.Warn("send response error",
+						zap.Object("req", &rcvData),
+						zap.Object("resp", rspData),
 						zap.Error(err),
 					)
-					continue
+					return
 				}
-				logger.Info("notify peer server success",
-					zap.String("laddr", conn.LocalAddr().String()),
-					zap.String("raddr", rspData.Peer),
-					zap.String("peer address", rcvData.Public),
-					zap.String("peer id", rspData.Msg),
-				)
-			default:
-				logger.Warn("unknown op",
-					zap.String("laddr", conn.LocalAddr().String()),
-					zap.String("raddr", raddr.String()),
-					zap.String("op", rcvData.Op),
-				)
-				continue
-			}
 
-			err = s.writeData(conn, raddr, rspData)
-			if err != nil {
-				logger.Warn("send response error",
+				logger.Info("response success",
 					zap.Object("req", &rcvData),
 					zap.Object("resp", rspData),
-					zap.Error(err),
 				)
-				continue
-			}
+			}()
 
-			logger.Info("response success",
-				zap.Object("req", &rcvData),
-				zap.Object("resp", rspData),
-			)
 		}
 	}
 }

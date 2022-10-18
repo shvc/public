@@ -355,14 +355,14 @@ func (u *UDPPeer) UDPPeerClient(ctx context.Context, port uint, dialTimeout, req
 					return
 				}
 			default:
-				logger.Warn("recv unknown msg",
+				logger.Warn("unknown op",
 					zap.String("raddr", raddr.String()),
 					zap.Object("data", &rcvData),
 				)
 				continue
 			}
 
-			logger.Info("recv msg",
+			logger.Info("recv",
 				zap.String("raddr", raddr.String()),
 				zap.Object("data", &rcvData),
 			)
@@ -421,12 +421,13 @@ requestLoop:
 		time.Sleep(time.Duration(pingPeerDelay) * time.Millisecond)
 	}
 	ticker = time.NewTicker(time.Duration(mrand.Uint32()%pingPeerInterval) * time.Millisecond)
+	defer ticker.Stop()
 	for i := uint32(1); i <= pingPeerNum; i++ {
 		if punched {
 			if i == pingPeerNum {
 				reqData.Msg = "byebye"
 			} else {
-				reqData.Msg = u.peerID + " say hello@" + time.Now().Format("2006-01-02T15:04:05Z")
+				reqData.Msg = u.peerID + ":HELLO@" + time.Now().Format("01-02T15:04:05Z")
 			}
 		}
 

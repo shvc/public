@@ -306,7 +306,7 @@ func (s *PublicServer) startUDPServer(ctx context.Context, lc *net.ListenConfig,
 				rspData.Op = "pong2"
 			case "report":
 				s.set(rcvData, 3)
-				logger.Info("report status",
+				logger.Info("report",
 					zap.String("raddr", raddr.String()),
 					zap.Object("req", &rcvData),
 				)

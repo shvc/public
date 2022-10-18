@@ -447,7 +447,7 @@ requestLoop:
 		}
 		select {
 		case <-punchedMessage:
-			logger.Info("punch success",
+			logger.Info("PUNCH success",
 				zap.String("raddr", u.serverAddr1.String()),
 				zap.String("peer", peerAddress),
 			)

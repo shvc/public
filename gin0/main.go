@@ -26,11 +26,14 @@ func router() http.Handler {
 	e := gin.New()
 	e.Use(gin.Recovery())
 	e.GET("/ping", func(c *gin.Context) {
+		c.SetCookie("cookie-name", "cookie-value", 600, "/", "", true, true)
+		ck, _ := c.Cookie("cookie-name")
 		c.JSON(http.StatusOK,
 			gin.H{
 				"code":    http.StatusOK,
 				"message": "pong",
 				"server":  hostname,
+				"cookie":  ck,
 			})
 	})
 

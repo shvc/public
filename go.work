@@ -7,4 +7,6 @@ use (
 	./qc
 	./qs
 	./gin0
+	./rpcserver
+	./rpcclient
 )

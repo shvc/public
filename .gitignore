@@ -21,3 +21,5 @@
 /qs/qs
 /qs/*.pem
 /qs/*.key
+/rpcserver/rpcserver
+/rpcclient/rpcclient

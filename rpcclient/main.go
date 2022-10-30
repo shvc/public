@@ -32,7 +32,7 @@ func DialHTTPPath(network, address, path string) (*rpc.Client, error) {
 	io.WriteString(conn, "CONNECT "+path+" HTTP/1.0\n\n")
 
 	// Require successful HTTP response
-	// before switching to RPC protocol.
+	// before switching to myrpc protocol.
 	resp, err := http.ReadResponse(bufio.NewReader(conn), &http.Request{Method: "CONNECT"})
 	if err == nil && resp.StatusCode == 200 {
 		return jsonrpc.NewClient(conn), nil
@@ -60,7 +60,7 @@ func main() {
 	var client *rpc.Client
 	switch strings.ToUpper(proto) {
 	case "HTTP":
-		client, err = DialHTTPPath("tcp", addr, rpc.DefaultRPCPath)
+		client, err = DialHTTPPath("tcp", addr, "/jsonrpc")
 	default:
 		client, err = jsonrpc.Dial(proto, addr)
 	}
@@ -73,20 +73,20 @@ func main() {
 	b := Item{"b", 2}
 	c := Item{"c", 3}
 
-	client.Call("RPC.AddItem", a, &reply)
-	client.Call("RPC.AddItem", b, &reply)
-	client.Call("RPC.AddItem", c, &reply)
+	client.Call("myrpc.AddItem", a, &reply)
+	client.Call("myrpc.AddItem", b, &reply)
+	client.Call("myrpc.AddItem", c, &reply)
 
-	client.Call("RPC.GetDB", "", &db)
+	client.Call("myrpc.GetDB", "", &db)
 	fmt.Println("GetDB: ", db)
 
-	client.Call("RPC.EditItem", Item{"a", 11}, &reply)
+	client.Call("myrpc.EditItem", Item{"a", 11}, &reply)
 
-	client.Call("RPC.DeleteItem", c, &reply)
-	client.Call("RPC.GetDB", "", &db)
+	client.Call("myrpc.DeleteItem", c, &reply)
+	client.Call("myrpc.GetDB", "", &db)
 	fmt.Println("GetDB(after delete): ", db)
 
-	client.Call("RPC.GetByName", "a", &reply)
+	client.Call("myrpc.GetByName", "a", &reply)
 	fmt.Println("GetByName(a): ", reply)
 
 }

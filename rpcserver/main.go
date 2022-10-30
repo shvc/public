@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -120,14 +121,24 @@ func main() {
 	flag.Parse()
 
 	app := initServer()
-	err := rpc.Register(app)
+	err := rpc.RegisterName("myrpc", app)
 	if err != nil {
 		log.Fatal("error registering RPC", err)
 	}
 
 	switch strings.ToUpper(proto) {
 	case "HTTP":
-		rpc.HandleHTTP()
+		http.HandleFunc("/jsonrpc", func(w http.ResponseWriter, r *http.Request) {
+			var conn io.ReadWriteCloser = struct {
+				io.Writer
+				io.ReadCloser
+			}{
+				ReadCloser: r.Body,
+				Writer:     w,
+			}
+
+			rpc.ServeRequest(jsonrpc.NewServerCodec(conn))
+		})
 		err = http.ListenAndServe(addr, nil)
 		if err != nil {
 			log.Fatal("rpc http serving error:", err)

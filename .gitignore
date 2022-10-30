@@ -23,3 +23,6 @@
 /qs/*.key
 /rpcserver/rpcserver
 /rpcclient/rpcclient
+/mymock/mymock
+/msql/msql
+/tmp/tmp

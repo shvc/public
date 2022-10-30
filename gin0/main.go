@@ -7,19 +7,25 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
+	_ "net/http/pprof"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gobike/envflag"
+	"github.com/wolfogre/go-pprof-practice/animal"
 )
 
 var (
-	addr             = ":80"
-	readTimeout uint = 30
-	idleTimeout uint = 20
-	stopTimeout uint = 30
-	hostname         = "unkonwn"
+	addr                   = ":80"
+	readHeaderTimeout uint = 10
+	idleTimeout       uint = 600
+	stopTimeout       uint = 30
+	cpuNum            uint = 1
+	debug                  = false
+	hostname               = "unkonwn"
 )
 
 func router() http.Handler {
@@ -34,7 +40,14 @@ func router() http.Handler {
 				"message": "pong",
 				"server":  hostname,
 				"cookie":  ck,
-			})
+			},
+		)
+	})
+
+	e.GET("/memstats", func(c *gin.Context) {
+		m := runtime.MemStats{}
+		runtime.ReadMemStats(&m)
+		c.JSON(http.StatusOK, m)
 	})
 
 	e.GET("/user/:name", func(c *gin.Context) {
@@ -61,19 +74,44 @@ func router() http.Handler {
 	return e
 }
 
+func debugAndPprof(cpuNum int) {
+	runtime.GOMAXPROCS(int(cpuNum))
+	runtime.SetMutexProfileFraction(1)
+	runtime.SetBlockProfileRate(1)
+
+	go func() {
+		log.Println("pprof", http.ListenAndServe(":9009", nil))
+	}()
+
+	for {
+		for _, v := range animal.AllAnimals {
+			v.Live()
+		}
+		time.Sleep(1 * time.Second)
+	}
+}
+
 func main() {
 	flag.StringVar(&addr, "addr", addr, "serve address")
+	flag.UintVar(&readHeaderTimeout, "read-header-timeout", readHeaderTimeout, "http read header timeout in second")
+	flag.UintVar(&idleTimeout, "idle-timeout", idleTimeout, "http idle timeout in second")
+	flag.UintVar(&cpuNum, "cpu", cpuNum, "cpu number")
+	flag.BoolVar(&debug, "debug", debug, "debug(pprof)")
 	envflag.Parse()
 
 	if hn, err := os.Hostname(); err == nil {
 		hostname = hn
 	}
 
+	if debug {
+		go debugAndPprof(int(cpuNum))
+	}
+
 	server := http.Server{
-		Addr:        addr,
-		Handler:     router(),
-		ReadTimeout: time.Duration(readTimeout) * time.Minute,
-		IdleTimeout: time.Duration(idleTimeout) * time.Minute,
+		Addr:              addr,
+		Handler:           router(),
+		ReadHeaderTimeout: time.Duration(readHeaderTimeout) * time.Second,
+		IdleTimeout:       time.Duration(idleTimeout) * time.Second,
 	}
 
 	done := make(chan os.Signal, 1)

@@ -9,4 +9,7 @@ use (
 	./gin0
 	./rpcserver
 	./rpcclient
+	./msql
+	./tmp
+	./mymock
 )

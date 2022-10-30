@@ -5,6 +5,7 @@ go 1.19
 require (
 	github.com/gin-gonic/gin v1.8.1
 	github.com/gobike/envflag v0.0.0-20160830095501-ae3268980a29
+	github.com/wolfogre/go-pprof-practice v0.0.0-20220519102209-aa4ca213af99
 )
 
 require (

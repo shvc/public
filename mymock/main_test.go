@@ -18,7 +18,8 @@ func TestGet(t *testing.T) {
 		db: mdb,
 	}
 
-	mdb.EXPECT().Get("x").Return(nil, errors.New("not exists")).Times(1)
+	mdb.EXPECT().Get("x").Return(nil, errors.New("not exists")).Times(2)
+	svc.Get("x")
 	svc.Get("x")
 
 }
@@ -32,9 +33,9 @@ func TestPut(t *testing.T) {
 		db: mdb,
 	}
 
-	mdb.EXPECT().Put("x", []byte("XX")).Return(nil).Times(1)
-	mdb.EXPECT().Put("", gomock.Any()).Return(fmt.Errorf("empty key"))
-	mdb.EXPECT().Put(gomock.Any(), nil).Return(fmt.Errorf("empty value"))
+	mdb.EXPECT().Put("x", []byte("XX")).Return(nil).MinTimes(1)
+	mdb.EXPECT().Put("", gomock.Any()).Return(fmt.Errorf("empty key")).Times(1)
+	mdb.EXPECT().Put(gomock.Any(), nil).Return(fmt.Errorf("empty value")).Times(1)
 	svc.Put("x", []byte("XX"))
 	svc.Put("", []byte("M"))
 	svc.Put("xx", nil)
@@ -50,8 +51,8 @@ func TestPutGet(t *testing.T) {
 		db: mdb,
 	}
 
-	cput := mdb.EXPECT().Put("x", []byte("XX")).Return(nil)
-	mdb.EXPECT().Get("x").Return([]byte("XX"), nil).After(cput)
+	cput := mdb.EXPECT().Put("x", []byte("XX")).Return(nil).Times(1)
+	mdb.EXPECT().Get("x").Return([]byte("XX"), nil).After(cput).Times(1)
 	svc.Put("x", []byte("XX"))
 	svc.Get("x")
 }

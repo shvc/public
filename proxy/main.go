@@ -10,6 +10,7 @@ import (
 	"net/http/httputil"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -45,11 +46,16 @@ func proxy(rw http.ResponseWriter, r *http.Request) {
 		slog.String("url", r.URL.String()),
 		slog.String("uri", r.RequestURI),
 	)
+	scheme := "http"
+	if strings.HasSuffix(r.RequestURI, ":443") {
+		scheme = "https"
+	}
 	proxy := httputil.ReverseProxy{
 		Transport: defaultTransport,
 		Director: func(req *http.Request) {
 			req.Host = r.Host
 			req.URL = r.URL
+			req.URL.Scheme = scheme
 			req.Header.Set("User-Agent", r.UserAgent())
 		},
 		ErrorHandler: func(rw http.ResponseWriter, req *http.Request, err error) {

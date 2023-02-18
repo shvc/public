@@ -175,6 +175,28 @@ func (u *UDPPeer) prepare(port uint) (conn net.PacketConn, e error) {
 	}
 
 	if rcvData2.Op != "pong2" {
+		logger.Debug("ping2 detail",
+			zap.String("raddr", sraddr2.String()),
+			zap.String("public", rcvData2.Public),
+			zap.Object("resp", &rcvData2),
+		)
+		if sraddr2.String() != sraddr1.String() {
+			e = fmt.Errorf("ping2 %s got invalid response %s", sraddr2.String(), rcvData2.Op)
+			return
+		}
+		rcvData2, sraddr2, err = u.readData(conn)
+		if err != nil {
+			e = fmt.Errorf("ping2 %s err: %w", u.serverAddr2.String(), err)
+			return
+		}
+	}
+
+	if rcvData2.Op != "pong2" {
+		logger.Debug("ping2 detail",
+			zap.String("raddr", sraddr2.String()),
+			zap.String("public", rcvData2.Public),
+			zap.Object("resp", &rcvData2),
+		)
 		e = fmt.Errorf("ping2 %s got invalid response %s", sraddr2.String(), rcvData2.Op)
 		return
 	}

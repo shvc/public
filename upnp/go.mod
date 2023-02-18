@@ -1,6 +1,6 @@
 module upnp
 
-go 1.19
+go 1.20
 
 require gitlab.com/NebulousLabs/go-upnp v0.0.0-20211002182029-11da932010b6
 

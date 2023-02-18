@@ -23,9 +23,9 @@ var (
 
 func main() {
 	var rootCmd = &cobra.Command{
-		Use:   "nt",
-		Short: "nt",
-		Long: "nat traversal tool",
+		Use:     "nt",
+		Short:   "nt",
+		Long:    "nat traversal tool",
 		Version: version,
 		Hidden:  true,
 		PersistentPreRunE: func(*cobra.Command, []string) error {

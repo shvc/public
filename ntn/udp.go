@@ -140,13 +140,13 @@ func (u *UDPPeer) prepare(port uint) (conn net.PacketConn, e error) {
 
 	err = u.writeData(conn, u.serverAddr1, &reqData)
 	if err != nil {
-		e = fmt.Errorf("ping1 %s err: %w", u.serverAddr1.String(), err)
+		e = fmt.Errorf("send ping1 %s err: %w", u.serverAddr1.String(), err)
 		return
 	}
 
 	rcvData1, sraddr1, err := u.readData(conn)
 	if err != nil {
-		e = fmt.Errorf("ping1 %s err: %w", u.serverAddr1.String(), err)
+		e = fmt.Errorf("read ping1 %s response err: %w", u.serverAddr1.String(), err)
 		return
 	}
 
@@ -164,17 +164,39 @@ func (u *UDPPeer) prepare(port uint) (conn net.PacketConn, e error) {
 	reqData.Op = "ping2"
 	err = u.writeData(conn, u.serverAddr2, &reqData)
 	if err != nil {
-		e = fmt.Errorf("ping2 %s err: %w", u.serverAddr2.String(), err)
+		e = fmt.Errorf("send ping2 %s err: %w", u.serverAddr2.String(), err)
 		return
 	}
 
 	rcvData2, sraddr2, err := u.readData(conn)
 	if err != nil {
-		e = fmt.Errorf("ping2 %s err: %w", u.serverAddr2.String(), err)
+		e = fmt.Errorf("read ping2 %s response err: %w", u.serverAddr2.String(), err)
 		return
 	}
 
 	if rcvData2.Op != "pong2" {
+		logger.Debug("ping2 detail",
+			zap.String("raddr", sraddr2.String()),
+			zap.String("public", rcvData2.Public),
+			zap.Object("resp", &rcvData2),
+		)
+		if sraddr2.String() != sraddr1.String() {
+			e = fmt.Errorf("ping2 %s got invalid response %s", sraddr2.String(), rcvData2.Op)
+			return
+		}
+		rcvData2, sraddr2, err = u.readData(conn)
+		if err != nil {
+			e = fmt.Errorf("ping2 %s err: %w", u.serverAddr2.String(), err)
+			return
+		}
+	}
+
+	if rcvData2.Op != "pong2" {
+		logger.Debug("ping2 detail",
+			zap.String("raddr", sraddr2.String()),
+			zap.String("public", rcvData2.Public),
+			zap.Object("resp", &rcvData2),
+		)
 		e = fmt.Errorf("ping2 %s got invalid response %s", sraddr2.String(), rcvData2.Op)
 		return
 	}
@@ -214,7 +236,7 @@ func (u *UDPPeer) UDPPeerServer(ctx context.Context, port uint, dialTimeout, rep
 			}
 
 			switch rcvData.Op {
-			case "pong3": // response of report from server
+			case "pong3": // response of peer server's report from public server
 				if rcvData.Peer != "" {
 					go func(peerAddress string) {
 						peerAddr, err := net.ResolveUDPAddr(u.networkType, peerAddress)

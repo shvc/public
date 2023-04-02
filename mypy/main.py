@@ -22,7 +22,7 @@ async def put_file(filename: str, req: Request):
 
 @app.get('/file')
 async def list_file():
-    return JSONResponse(content={"file": os.listdir(store)}, status_code=200) 
+    return JSONResponse(content={"file": os.listdir(store)}, status_code=200)
 
 
 @app.get('/file/{filename}')

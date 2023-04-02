@@ -12,4 +12,5 @@ use (
 	./tmp
 	./mymock
 	./proxy
+	./es7
 )

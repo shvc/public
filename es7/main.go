@@ -33,7 +33,7 @@ var (
 	userName       = "elastic"
 	password       = "ChangeMe"
 	index          = "test"
-	outputFile     = filepath.Join(os.TempDir(), "es-out.log")
+	outputDir      = os.TempDir()
 	number     int = 1
 	scrollSize int = 100
 	debug          = false
@@ -48,17 +48,14 @@ type Result struct {
 	Took     int    `json:"took"`
 	TimedOut bool   `json:"timed_out"`
 	Hits     struct {
-		Total struct {
-			Value    int    `json:"value"`
-			Relation string `json:"relation"`
-		} `json:"total"`
-		Hits []struct {
+		Total any `json:"total"`
+		Hits  []struct {
 			ID     string          `json:"_id"`
 			Index  string          `json:"_index"`
 			Source json.RawMessage `json:"_source"`
 		} `json:"hits"`
 	} `json:"hits"`
-	Aggregations map[string]interface{} `json:"aggregations"`
+	Aggregations map[string]any `json:"aggregations"`
 }
 
 func RandomString(len int) string {
@@ -91,7 +88,7 @@ func main() {
 	flag.StringVar(&userName, "u", userName, "user name")
 	flag.StringVar(&password, "p", password, "user password")
 	flag.StringVar(&index, "i", index, "index name")
-	flag.StringVar(&outputFile, "o", outputFile, "output file name")
+	flag.StringVar(&outputDir, "o", outputFile, "output dir")
 	flag.IntVar(&number, "n", number, "insert document number")
 	flag.IntVar(&scrollSize, "size", scrollSize, "scroll size")
 
@@ -181,22 +178,30 @@ func main() {
 
 	// 3. Search for the indexed documents
 
-	outputFd, err = os.OpenFile(outputFile, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0666)
-	if err != nil {
-		log.Fatal(err)
-	}
+	outputFile := filepath.Join(outputDir, fmt.Sprintf("%s-%s.log", namespace, index))
 	//normalSearch(title)
 
-	scrollSearch(title)
+	scrollSearch(title, outputFile)
 }
 
-func scrollSearch(title string) error {
+func scrollSearch(title, outputFile string) error {
 	var r = Result{}
 	var buf bytes.Buffer
-	query := map[string]interface{}{
-		"query": map[string]interface{}{
-			"match": map[string]interface{}{
-				"title": title,
+	query := map[string]any{
+		"query": map[string]any{
+			"bool": map[string]any{
+				"must": []map[string]any{
+					{
+						"match_phrase": map[string]any{
+							"kubernetes.namespace_name": map[string]any{
+								"query": namespace,
+							},
+						},
+					},
+				},
+				"filter":   []map[string]any{},
+				"should":   []map[string]any{},
+				"must_not": []map[string]any{},
 			},
 		},
 	}
@@ -204,141 +209,67 @@ func scrollSearch(title string) error {
 		log.Fatalf("Error encoding query: %s", err)
 	}
 	res, err := es.Search(
+		es.Search.WithContext(context.Background()),
 		es.Search.WithIndex(index),
 		es.Search.WithBody(&buf),
 		es.Search.WithSize(scrollSize),
-		es.Search.WithScroll(time.Minute),
-		//es.Search.WithPretty(),
+		es.Search.WithTrackTotalHits(true),
+		es.Search.WithScroll(time.Duration(scrollExpire)*time.Minute),
+		es.Search.WithTimeout(60*time.Second),
 	)
+
 	if err != nil {
-		return err
-	}
-	if res.IsError() {
-		return errors.New("an error")
+		return fmt.Errorf("search error: %e", err)
 	}
 	defer res.Body.Close()
+	if res.IsError() {
+		return fmt.Errorf("search response error: %s", res.String())
+	}
 	if debug {
-		// io.Copy(os.Stdout, res.Body)
-		// return nil
-		/*
-			{
-			  "_scroll_id" : "FGluY2x1ZGVfY29udGV4dF91dWlkDXF1ZXJ5QW5kRmV0Y2gBFmFwNmVsWm9OU2RXTjI0RlA1RWRIVUEAAAAAAAAAOxY5UDgtaDVyN1RFYW5QTm5NY0ZwWEJB",
-			  "took" : 2,
-			  "timed_out" : false,
-			  "_shards" : {
-			    "total" : 1,
-			    "successful" : 1,
-			    "skipped" : 0,
-			    "failed" : 0
-			  },
-			  "hits" : {
-			    "total" : {
-			      "value" : 9,
-			      "relation" : "eq"
-			    },
-			    "max_score" : 1.6805339,
-			    "hits" : [
-			      {
-			        "_index" : "test",
-			        "_type" : "_doc",
-			        "_id" : "uwDKQocBMP718tB8p5r1",
-			        "_score" : 1.6805339,
-			        "_source" : {
-			          "title" : "b5054aa59b17a5d5-0",
-			          "age" : 10
-			        }
-			      },
-			      {
-			        "_index" : "test",
-			        "_type" : "_doc",
-			        "_id" : "vADKQocBMP718tB8qJoH",
-			        "_score" : 1.6805339,
-			        "_source" : {
-			          "title" : "b5054aa59b17a5d5-1",
-			          "age" : 11
-			        }
-			      }
-			    ]
-			  }
-			}
-		*/
-
+		json.NewEncoder(os.Stdout).Encode(query)
+		io.Copy(os.Stdout, res.Body)
+		return nil
 	}
 	if err := json.NewDecoder(res.Body).Decode(&r); err != nil {
 		return err
 	}
 
-	log.Printf("total:%v, size:%v, took:%v", r.Hits.Total.Value, scrollSize, r.Took)
+	total, ok := r.Hits.Total.(float64)
+	if !ok {
+		total = r.Hits.Total.(map[string]any)["value"].(float64)
+	}
+	log.Printf("total:%v, size:%v, hits:%v, took:%v", total, scrollSize, len(r.Hits.Hits), r.Took)
+	if len(r.Hits.Hits) == 0 {
+		return nil
+	}
+	outputFd, err = os.OpenFile(outputFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
+	if err != nil {
+		return fmt.Errorf("Open output file: %w", err)
+	}
+	log.Println("ouput to file: ", outputFile)
+	defer outputFd.Close()
 	if err = outputToFile(&r); err != nil {
 		return err
 	}
 
-	scrollId := r.ScrollID
-	if scrollId == "" {
-		return errors.New("no scroll id")
+	scrollID := r.ScrollID
+	if scrollID == "" {
+		return errors.New("no scroll id return from server")
 	}
 
-	batchNum := 0
+	round := 0
 	for {
-		batchNum++
+		round++
 		res, err := es.Scroll(
-			es.Scroll.WithScrollID(scrollId),
-			es.Scroll.WithScroll(time.Minute),
-			//es.Scroll.WithPretty(),
+			es.Scroll.WithScrollID(scrollID),
+			es.Scroll.WithScroll(time.Duration(scrollExpire)*time.Minute),
 		)
 		if err != nil {
-			log.Fatalf("Error: %s", err)
-			return err
+			return fmt.Errorf("scroll error: %e", err)
 		}
 		if res.IsError() {
-			logFatal(res.Body, res.Status())
+			return fmt.Errorf("scroll response error: %s", res.String())
 		}
-		if debug {
-			//io.Copy(os.Stdout, res.Body)
-			/*
-				{
-				  "_scroll_id" : "FGluY2x1ZGVfY29udGV4dF91dWlkDXF1ZXJ5QW5kRmV0Y2gBFmFwNmVsWm9OU2RXTjI0RlA1RWRIVUEAAAAAAAAAPxY5UDgtaDVyN1RFYW5QTm5NY0ZwWEJB",
-				  "took" : 1,
-				  "timed_out" : false,
-				  "_shards" : {
-				    "total" : 1,
-				    "successful" : 1,
-				    "skipped" : 0,
-				    "failed" : 0
-				  },
-				  "hits" : {
-				    "total" : {
-				      "value" : 9,
-				      "relation" : "eq"
-				    },
-				    "max_score" : 2.118156,
-				    "hits" : [
-				      {
-				        "_index" : "test",
-				        "_type" : "_doc",
-				        "_id" : "2wDbQocBMP718tB8qppM",
-				        "_score" : 2.118156,
-				        "_source" : {
-				          "title" : "b5ba7339fedf0486-4",
-				          "age" : 14
-				        }
-				      },
-				      {
-				        "_index" : "test",
-				        "_type" : "_doc",
-				        "_id" : "3ADbQocBMP718tB8qppg",
-				        "_score" : 2.118156,
-				        "_source" : {
-				          "title" : "b5ba7339fedf0486-5",
-				          "age" : 15
-				        }
-				      }
-				    ]
-				  }
-				}
-			*/
-		}
-
 		scrollResult := Result{}
 		if err := json.NewDecoder(res.Body).Decode(&scrollResult); err != nil {
 			res.Body.Close()
@@ -346,13 +277,13 @@ func scrollSearch(title string) error {
 		}
 		res.Body.Close()
 
-		log.Printf("batch:%v, took:%v", batchNum, scrollResult.Took)
-		// hits array empty means finished
 		lenOfNextResult := len(scrollResult.Hits.Hits)
+		log.Printf("round:%v, hits:%v, took:%v", round, lenOfNextResult, scrollResult.Took)
+		// hits array empty means finished
 		if lenOfNextResult == 0 {
 			break
 		}
-		scrollId = scrollResult.ScrollID
+		scrollID = scrollResult.ScrollID
 		if err = outputToFile(&scrollResult); err != nil {
 			return err
 		}

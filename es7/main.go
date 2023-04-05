@@ -23,24 +23,23 @@ import (
 	"github.com/elastic/go-elasticsearch/v7/esapi"
 )
 
-func init() {
-	mrand.Seed(time.Now().UnixNano())
-}
-
 var (
-	es         *elasticsearch.Client
-	server         = "http://192.168.56.2:9200"
-	userName       = "elastic"
-	password       = "ChangeMe"
-	index          = "test"
-	outputDir      = os.TempDir()
-	number     int = 1
-	scrollSize int = 100
-	debug          = false
+	es           *elasticsearch.Client
+	server            = "http://192.168.56.2:9200"
+	userName          = "elastic"
+	password          = "ChangeMe"
+	index             = "test"
+	namespace         = "default"
+	outputDir         = os.TempDir()
+	number       int  = 1
+	scrollSize   int  = 100
+	scrollExpire uint = 5
+	debug             = false
 )
 
 var (
 	outputFd *os.File
+	mnrand   = mrand.New(mrand.NewSource(time.Now().UnixMicro()))
 )
 
 type Result struct {
@@ -63,7 +62,7 @@ func RandomString(len int) string {
 	_, err := rand.Read(buf)
 	if err != nil {
 		for i := 0; i < len; i++ {
-			buf[i] = byte(mrand.Intn(128))
+			buf[i] = byte(mnrand.Intn(128))
 		}
 	}
 	return hex.EncodeToString(buf)
@@ -88,7 +87,9 @@ func main() {
 	flag.StringVar(&userName, "u", userName, "user name")
 	flag.StringVar(&password, "p", password, "user password")
 	flag.StringVar(&index, "i", index, "index name")
-	flag.StringVar(&outputDir, "o", outputFile, "output dir")
+	flag.StringVar(&namespace, "ns", namespace, "namespace")
+	flag.StringVar(&outputDir, "o", outputDir, "output dir")
+	flag.UintVar(&scrollExpire, "e", scrollExpire, "scroll expire duration")
 	flag.IntVar(&number, "n", number, "insert document number")
 	flag.IntVar(&scrollSize, "size", scrollSize, "scroll size")
 
@@ -118,7 +119,7 @@ func main() {
 	defer res.Body.Close()
 	// Check response status
 	if res.IsError() {
-		log.Fatalf("Error: %s", res.String())
+		logFatal(res.Body, res.Status())
 	}
 	// Deserialize the response into a map.
 	if err := json.NewDecoder(res.Body).Decode(&r); err != nil {
@@ -134,11 +135,13 @@ func main() {
 	for i := 0; i < int(number); i++ {
 		// Build the request body.
 		data, err := json.Marshal(struct {
-			Title string `json:"title"`
-			Age   int    `json:"age"`
+			Title     string `json:"title"`
+			Age       int    `json:"age"`
+			Namespace string `json:"namespace"`
 		}{
-			Title: fmt.Sprintf("%s-%v", title, i),
-			Age:   i + 10,
+			Title:     fmt.Sprintf("%s-%v", title, i),
+			Namespace: namespace,
+			Age:       i + 10,
 		})
 		if err != nil {
 			log.Fatalf("Error marshaling document: %s", err)
@@ -244,9 +247,9 @@ func scrollSearch(title, outputFile string) error {
 	}
 	outputFd, err = os.OpenFile(outputFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
 	if err != nil {
-		return fmt.Errorf("Open output file: %w", err)
+		return fmt.Errorf("open output file: %w", err)
 	}
-	log.Println("ouput to file: ", outputFile)
+	log.Println("output to file: ", outputFile)
 	defer outputFd.Close()
 	if err = outputToFile(&r); err != nil {
 		return err

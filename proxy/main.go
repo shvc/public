@@ -4,27 +4,42 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
 	"github.com/gobike/envflag"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/jaeger"
+	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/sdk/resource"
+	tracesdk "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
 	"golang.org/x/exp/slog"
 )
 
 var (
 	addr         string = ":80"
+	backend      string = "http://192.168.56.2:9000"
+	provider     string = "http://192.168.56.2:14268"
+	serviceName  string = "svc-xxx"
 	readTimeout  uint   = 30
 	writeTimeout uint   = 30
 	debug        bool
 )
 
+var (
+	providerURL *url.URL
+)
 var defaultTransport = &http.Transport{
 	DialContext: (&net.Dialer{
 		Timeout:   20 * time.Second,
@@ -41,22 +56,21 @@ var defaultTransport = &http.Transport{
 }
 
 func proxy(rw http.ResponseWriter, r *http.Request) {
-	slog.Info("request",
-		slog.String("host", r.Host),
-		slog.String("url", r.URL.String()),
-		slog.String("uri", r.RequestURI),
-	)
-	scheme := "http"
-	if strings.HasSuffix(r.RequestURI, ":443") {
-		scheme = "https"
-	}
+	tr := otel.Tracer("component-main")
+	spanCtx, span := tr.Start(r.Context(), "proxy-handler")
+	defer span.End()
+
 	proxy := httputil.ReverseProxy{
 		Transport: defaultTransport,
 		Director: func(req *http.Request) {
 			req.Host = r.Host
 			req.URL = r.URL
-			req.URL.Scheme = scheme
+			req.URL.Scheme = providerURL.Scheme
+			req.URL.Host = providerURL.Host
 			req.Header.Set("User-Agent", r.UserAgent())
+
+			p := otel.GetTextMapPropagator()
+			p.Inject(spanCtx, propagation.HeaderCarrier(req.Header))
 		},
 		ErrorHandler: func(rw http.ResponseWriter, req *http.Request, err error) {
 			if errors.Is(err, context.Canceled) || (r.Method == http.MethodPut && errors.Is(err, io.ErrUnexpectedEOF)) {
@@ -77,6 +91,14 @@ func proxy(rw http.ResponseWriter, r *http.Request) {
 			// } else {
 			// 	os.Stdout.Write(data)
 			// }
+			slog.Info("request",
+				slog.String("remote", r.RemoteAddr),
+				slog.String("method", r.Method),
+				slog.String("host", r.Host),
+				slog.String("url", r.URL.String()),
+				slog.String("uri", r.RequestURI),
+				slog.Int("response", resp.StatusCode),
+			)
 			return nil
 		},
 	}
@@ -86,7 +108,7 @@ func proxy(rw http.ResponseWriter, r *http.Request) {
 func InitLog(debug bool) error {
 	logger := slog.New(slog.NewTextHandler(os.Stdout))
 	if debug {
-		logger.Enabled(slog.DebugLevel)
+		logger.Enabled(context.Background(), slog.LevelDebug)
 	}
 	slog.SetDefault(logger)
 
@@ -96,12 +118,65 @@ func InitLog(debug bool) error {
 	// )
 	return nil
 }
+
+func tracerProvider(url string) (tp *tracesdk.TracerProvider, err error) {
+	fmt.Println("init traceProvider")
+	var exporter tracesdk.SpanExporter
+	if url == "" {
+		exporter, err = stdouttrace.New()
+		if err != nil {
+			return
+		}
+	} else {
+		exporter, err = jaeger.New(jaeger.WithCollectorEndpoint(jaeger.WithEndpoint(url)))
+		if err != nil {
+			return
+		}
+	}
+	tp = tracesdk.NewTracerProvider(
+		tracesdk.WithBatcher(exporter),
+		tracesdk.WithResource(resource.NewWithAttributes(
+			semconv.SchemaURL,
+			semconv.ServiceNameKey.String(serviceName),
+			attribute.String("environment", "environment"),
+			attribute.Int64("ID", 9999),
+		)),
+	)
+	return
+}
 func main() {
 	flag.BoolVar(&debug, "debug", debug, "debug log level")
 	flag.StringVar(&addr, "addr", addr, "server serve address")
+	flag.StringVar(&backend, "b", backend, "backend server address")
+	flag.StringVar(&provider, "tp", provider, "trace provider address")
 	flag.UintVar(&readTimeout, "read-timeout", readTimeout, "server read timeout")
 	flag.UintVar(&writeTimeout, "write-timeout", writeTimeout, "server write timeout")
 	envflag.Parse()
+
+	var err error
+	providerURL, err = url.Parse(backend)
+	if err != nil {
+		panic(err)
+	}
+
+	tp, err := tracerProvider(provider)
+	if err != nil {
+		panic(err)
+	}
+	otel.SetTracerProvider(tp)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	defer func(ctx context.Context) {
+		ctx, cancel = context.WithTimeout(ctx, time.Second*5)
+		defer cancel()
+		if err := tp.Shutdown(ctx); err != nil {
+			slog.Error("stop trace provider",
+				slog.String("err", err.Error()),
+			)
+		}
+	}(ctx)
 
 	exit := make(chan os.Signal, 3)
 	signal.Notify(exit, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGINT)
@@ -134,7 +209,7 @@ func main() {
 			)
 		}
 	}
-	slog.Info("server stoped",
+	slog.Info("server stopped",
 		slog.String("addr", addr),
 	)
 }
